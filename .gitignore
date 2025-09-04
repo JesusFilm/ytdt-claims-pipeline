@@ -8,5 +8,4 @@ dist/
 .vscode/
 
 
-data/
-!data/test/
+data/exports/

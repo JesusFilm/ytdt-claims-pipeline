@@ -1,0 +1,3 @@
+video_id,verdict,media_component_id,language_id,wave,no_code
+abc123,Y,MC001,529,1,
+def456,N,MC002,1818,2,
