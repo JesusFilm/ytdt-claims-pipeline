@@ -3,15 +3,15 @@ name: Mirror Repo via SSH
 on:
   push:
     branches:
-      - main           # Only trigger on push to main
+      - main
   pull_request:
     branches:
-      - main           # Trigger when PR targets main
+      - main
     types:
       - opened
-      - synchronize    # Trigger when new commits are pushed to the PR
+      - synchronize
       - reopened
-  workflow_dispatch:   # Optional manual trigger
+  workflow_dispatch:
 
 jobs:
   mirror:
@@ -24,6 +24,7 @@ jobs:
           echo "${{ secrets.MIRROR_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan github.com >> ~/.ssh/known_hosts
+          echo "Host github.com\n  StrictHostKeyChecking no\n" >> ~/.ssh/config
 
       - name: Mirror repository over SSH
         run: |
@@ -31,9 +32,8 @@ jobs:
           git config --global user.email "me@ceduth.dev"
 
           git clone --mirror git@github.com:ceduth/ytdt-claims-pipeline.git
-          cd private-repo.git
+          cd ytdt-claims-pipeline.git
 
           git remote set-url --push origin git@github.com:ceduth-jfp/ytdt-claims-pipeline.git
 
           git push --mirror
-
