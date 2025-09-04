@@ -6,10 +6,11 @@ Node.js API server.
 
 1. OpenVPN - Setup, start and test
 
-Drop `ca.crt`, `client.crt`, `client.key`, `client.ovpn` into `./config/vpn`, then
+Drop `ca.crt`, `client.crt`, `client.key`, `client.ovpn` into `./config/vpn`, 
+Then install OpenVPN binary and dry-test (one-time):
 
 ```shell
-brew install openvpn    # Optional
+brew install openvpn           
 sudo openvpn --config ./config/vpn/client.ovpn
 ```
 
