@@ -2,7 +2,9 @@ const fs = require('fs');
 const csv = require('csv-parse');
 const { format } = require('date-fns');
 
+
 async function processClaims(context) {
+
   const { claims, claimsSource } = context.files;
   if (!claims) return;
 
@@ -50,6 +52,7 @@ function parseCSV(filePath) {
     fs.createReadStream(filePath)
       .pipe(csv.parse({ columns: true, skip_empty_lines: true }))
       .on('data', (row) => {
+
         // Normalize column names
         if (row['REPLACE(channel_display_name, ",", " ")']) {
           row.channel_display_name = row['REPLACE(channel_display_name, ",", " ")'];

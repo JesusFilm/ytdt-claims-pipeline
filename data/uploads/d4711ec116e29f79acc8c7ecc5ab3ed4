@@ -1,0 +1,3 @@
+claim_id,video_id,channel_id,asset_labels,claim_origin,views,video_title,channel_display_name
+testclaim001,abc123,UCtest123,"Jesus Film Project",WEB_UPLOAD,1000,"Test Video","Test Channel"
+testclaim002,def456,UCtest456,"Jesus Film",MANUAL_CLAIM,500,"Another Video","Another Channel"

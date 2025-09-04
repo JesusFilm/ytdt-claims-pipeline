@@ -24,6 +24,11 @@ yarn dev
 ### Test
 
 ```shell
+
+# Using VPN
+sudo node scripts/test-pipeline.js
+
+# Using local MySQL
 SKIP_VPN=true sudo node scripts/test-pipeline.js
 ```
 

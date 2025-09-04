@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 
 /*
-# Test without VPN (for local MySQL)
-node test-pipeline.js --skip-vpn
-
-# Test with VPN
-node test-pipeline.js
+# Test with or without VPN (for local MySQL)
+sudo node test-pipeline.js [--skip-vpn]
 */
 
 require('dotenv').config();
