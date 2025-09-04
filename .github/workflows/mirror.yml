@@ -1,0 +1,39 @@
+name: Mirror Repo via SSH
+
+on:
+  push:
+    branches:
+      - main           # Only trigger on push to main
+  pull_request:
+    branches:
+      - main           # Trigger when PR targets main
+    types:
+      - opened
+      - synchronize    # Trigger when new commits are pushed to the PR
+      - reopened
+  workflow_dispatch:   # Optional manual trigger
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.MIRROR_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Mirror repository over SSH
+        run: |
+          git config --global user.name "mirror-ssh"
+          git config --global user.email "mirror@users.noreply.github.com"
+
+          git clone --mirror https://github.com/your-user/private-repo.git
+          cd private-repo.git
+
+          git remote set-url --push origin git@github.com:company-org/mirror-repo.git
+
+          git push --mirror
+
