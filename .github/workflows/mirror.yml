@@ -27,13 +27,13 @@ jobs:
 
       - name: Mirror repository over SSH
         run: |
-          git config --global user.name "mirror-ssh"
-          git config --global user.email "mirror@users.noreply.github.com"
+          git config --global user.name "EC"
+          git config --global user.email "me@ceduth.dev"
 
-          git clone --mirror https://github.com/your-user/private-repo.git
+          git clone --mirror git@github.com:ceduth/ytdt-claims-pipeline.git
           cd private-repo.git
 
-          git remote set-url --push origin git@github.com:company-org/mirror-repo.git
+          git remote set-url --push origin git@github.com:ceduth-jfp/ytdt-claims-pipeline.git
 
           git push --mirror
 
