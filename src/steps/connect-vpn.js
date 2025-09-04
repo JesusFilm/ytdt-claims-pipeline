@@ -1,0 +1,47 @@
+const { spawn } = require('child_process');
+const mysql = require('mysql2/promise');
+
+async function connectVPN(context) {
+  // Simple VPN connection using openvpn with certificates
+  await new Promise((resolve, reject) => {
+    const vpn = spawn('openvpn', [
+      '--config', process.env.VPN_CONFIG_FILE,
+      '--daemon',
+      '--log', '/tmp/vpn.log'  // Add logging
+    ]);
+
+    vpn.on('error', reject);
+
+    // Give VPN time to connect
+    setTimeout(() => {
+      console.log('VPN connection established');
+      context.connections.vpnProcess = vpn;
+      resolve();
+    }, 5000); // Increased from 5000 to 10000
+  });
+
+  // Wait a bit more for tunnel to be ready
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Connect to MySQL through VPN
+  context.connections.mysql = await mysql.createPool({
+    host: process.env.MYSQL_HOST,
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DATABASE,
+    waitForConnections: true,
+    connectionLimit: 10,
+    // charset: 'utf8_general_ci' // utf8mb4 fails
+  });
+
+  // Test connection
+  try {
+    const [rows] = await context.connections.mysql.query('SELECT 1');
+    console.log('MySQL connected through VPN');
+  } catch (error) {
+    console.log('MySQL error details:', error.code, error.errno, error.address);
+    throw error;
+  }
+}
+
+module.exports = connectVPN;
