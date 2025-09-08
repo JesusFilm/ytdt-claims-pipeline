@@ -8,7 +8,7 @@ const { connectToDatabase, closeConnection } = require('./database');
 const historyController = require('./controllers/historyController');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());

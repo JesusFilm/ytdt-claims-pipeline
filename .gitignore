@@ -8,4 +8,6 @@ dist/
 .vscode/
 
 
+data/uploads/
 data/exports/
+infrastructure/gcp/cloud-config.yaml

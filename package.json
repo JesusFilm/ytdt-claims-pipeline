@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/api.js",
-    "dev": "nodemon src/api.js"
+    "start": "sudo -E node src/api.js",
+    "dev": "sudo -E nodemon src/api.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -16,7 +16,7 @@
     "express": "^4.18.2",
     "googleapis": "^128.0.0",
     "mongodb": "^6.2.0",
-    "multer": "^1.4.5",
+    "multer": "^2.0.2",
     "mysql2": "^3.6.0"
   },
   "devDependencies": {

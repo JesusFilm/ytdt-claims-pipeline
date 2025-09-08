@@ -1,0 +1,24 @@
+#cloud-config
+
+write_files:
+- path: /etc/systemd/system/ytdt-claims-pipeline.service
+  permissions: 0644
+  content: |
+    [Unit]
+    Description=API Container
+    After=docker.service
+    Requires=docker.service
+    
+    [Service]
+    ExecStartPre=/usr/bin/docker pull ${IMAGE_URL}
+    ExecStart=/usr/bin/docker run --rm --privileged --cap-add=NET_ADMIN -p 80:3000 --name ytdt-claims-pipeline ${IMAGE_URL}
+    ExecStop=/usr/bin/docker stop ytdt-claims-pipeline
+    Restart=always
+    
+    [Install]
+    WantedBy=multi-user.target
+
+runcmd:
+- systemctl daemon-reload
+- systemctl enable ytdt-claims-pipeline.service
+- systemctl start ytdt-claims-pipeline.service
