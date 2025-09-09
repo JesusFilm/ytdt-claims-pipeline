@@ -2,12 +2,13 @@ const fs = require('fs').promises;
 const path = require('path');
 const { format } = require('date-fns');
 const csv = require('csv-parse/sync');
+const { cleanRow } = require('../lib/utils');
 
 
 async function processVerdicts(context) {
-  
+
   const mysql = context.connections.mysql;
-  
+
   // Process MCN verdicts
   if (context.files.mcnVerdicts) {
     await processVerdictFile(
@@ -31,7 +32,7 @@ async function processVerdicts(context) {
 
 async function processVerdictFile(mysql, filePath, type, context) {
   const tableName = `${type}_verdicts_${format(new Date(), 'yyyyMMdd')}`;
-  
+
   // Create verdicts table
   await mysql.query(`
     CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -49,19 +50,22 @@ async function processVerdictFile(mysql, filePath, type, context) {
   const rows = csv.parse(fileContent, { columns: true });
 
   // Clean data
-  const cleaned = rows.map(row => ({
-    video_id: row.video_id?.replace(/^'/, ''), // Remove Excel quotes
-    verdict: row.verdict || 'U',
-    media_component_id: row.media_component_id === '' ? null : row.media_component_id,
-    language_id: row.language_id === '' ? null : row.language_id,
-    wave: row.wave || '0',
-    no_code: row.no_code === '' ? null : row.no_code
-  }));
+  const cleaned = rows.map(row => {
+    const cleanedRow = cleanRow(row);
+    return {
+      video_id: cleanedRow.video_id?.replace(/^'/, ''), // Remove Excel quotes
+      verdict: cleanedRow.verdict || 'U',
+      media_component_id: cleanedRow.media_component_id === '' ? null : cleanedRow.media_component_id,
+      language_id: cleanedRow.language_id === '' ? null : cleanedRow.language_id,
+      wave: cleanedRow.wave || '0',
+      no_code: cleanedRow.no_code === '' ? null : cleanedRow.no_code
+    };
+  });
 
   // Insert verdicts
   for (let i = 0; i < cleaned.length; i += 1000) {
     const batch = cleaned.slice(i, i + 1000);
-    const values = batch.map(r => 
+    const values = batch.map(r =>
       `(${mysql.escape(r.video_id)}, ${mysql.escape(r.verdict)}, 
         ${mysql.escape(r.media_component_id)}, ${mysql.escape(r.language_id)}, 
         ${mysql.escape(r.wave)}, ${mysql.escape(r.no_code)})`
@@ -77,7 +81,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   // Update main tables
   const targetTable = type === 'mcn' ? 'youtube_mcn_claims' : 'youtube_channel_videos';
-  
+
   await mysql.query(`
     UPDATE ${targetTable} c, ${tableName} v
     SET c.verdict = v.verdict,

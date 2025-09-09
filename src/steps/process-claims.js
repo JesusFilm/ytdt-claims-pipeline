@@ -1,6 +1,7 @@
 const fs = require('fs');
 const csv = require('csv-parse');
 const { format } = require('date-fns');
+const { cleanRow } = require('../lib/utils');
 
 
 async function processClaims(context) {
@@ -60,7 +61,7 @@ function parseCSV(filePath) {
         if (row['REPLACE(video_title, ",", " ")']) {
           row.video_title = row['REPLACE(video_title, ",", " ")'];
         }
-        rows.push(row);
+        rows.push(cleanRow(row));
       })
       .on('end', () => resolve(rows))
       .on('error', reject);

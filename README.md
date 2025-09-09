@@ -216,7 +216,7 @@ gh auth token | docker login ghcr.io -u $GHCR_USER --password-stdin
 docker push ghcr.io/$GHCR_USER/ytdt-claims-pipeline:latest
 ```
 
-### 2. Spwan Compute Engine VM
+### 2. Spawn Compute Engine VM
 
 * Create COS VM with cloud-config
 
