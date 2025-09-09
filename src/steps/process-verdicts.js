@@ -84,17 +84,19 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   await mysql.query(`
     UPDATE ${targetTable} c, ${tableName} v
-    SET c.verdict = v.verdict,
-        c.wave = v.wave,
+    SET c.verdict = CASE WHEN v.verdict IS NOT NULL THEN v.verdict ELSE c.verdict END,
+        c.wave = CASE WHEN v.wave IS NOT NULL THEN v.wave ELSE c.wave END,
         c.media_component_id = CASE 
+          WHEN v.media_component_id IS NULL THEN c.media_component_id
           WHEN v.media_component_id = '-' THEN NULL 
           ELSE v.media_component_id 
         END,
         c.language_id = CASE 
+          WHEN v.language_id IS NULL THEN c.language_id
           WHEN v.language_id = '-' THEN NULL 
           ELSE v.language_id 
         END,
-        c.no_code = v.no_code
+        c.no_code = CASE WHEN v.no_code IS NOT NULL THEN v.no_code ELSE c.no_code END
     WHERE c.video_id = v.video_id
   `);
 
