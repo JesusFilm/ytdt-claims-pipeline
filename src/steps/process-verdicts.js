@@ -53,7 +53,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
   const cleaned = rows.map(row => {
     const cleanedRow = cleanRow(row);
     return {
-      video_id: cleanedRow.video_id?.replace(/^'/, ''), // Remove Excel quotes
+      video_id: cleanedRow.video_id,
       verdict: cleanedRow.verdict || 'U',
       media_component_id: cleanedRow.media_component_id === '' ? null : cleanedRow.media_component_id,
       language_id: cleanedRow.language_id === '' ? null : cleanedRow.language_id,

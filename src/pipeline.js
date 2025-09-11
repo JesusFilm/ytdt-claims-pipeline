@@ -46,7 +46,6 @@ async function runPipeline(files, options = {}) {
 
       console.log(`Running ${step.name}...`);
       context.status = step.name;
-      
       await step.fn(context);
       
       console.log(`✓ ${step.name} completed`);
@@ -54,7 +53,6 @@ async function runPipeline(files, options = {}) {
 
     context.status = 'completed';
     const duration = Date.now() - context.startTime;
-    
     console.log(`Pipeline completed in ${Math.round(duration/1000)}s`);
     
     return {

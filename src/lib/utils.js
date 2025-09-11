@@ -5,7 +5,8 @@ module.exports.cleanRow = function (row) {
   Object.entries(row).forEach(([key, value]) => {
     if (typeof value === 'string') {
       value = value.trim();
-      value = value.replace(/\r/g, ''); // Remove carriage returns
+      value = value.replace(/\r/g, '');
+      value = value.replace(/^'|'$/g, ''); // Remove Excel quotes
     }
     cleaned[key] = value;
   });
