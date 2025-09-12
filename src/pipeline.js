@@ -6,10 +6,9 @@ const processVerdicts = require('./steps/process-verdicts');
 const exportViews = require('./steps/export-views');
 const enrichML = require('./steps/enrich-ml');
 const uploadDrive = require('./steps/upload-drive');
-
+const { getDatabase } = require('./database');
 
 async function runPipeline(files, options = {}) {
-
   const context = {
     files,
     options,
@@ -30,7 +29,26 @@ async function runPipeline(files, options = {}) {
     { name: 'upload_drive', fn: uploadDrive }
   ];
 
+  let runId = null;
+
   try {
+    // Create initial run record
+    const db = getDatabase();
+    const collection = db.collection('pipeline_runs');
+    
+    const initialRun = {
+      timestamp: new Date(),
+      status: 'running',
+      currentStep: 'starting',
+      completedSteps: [],
+      files: files,
+      startTime: new Date()
+    };
+    
+    const result = await collection.insertOne(initialRun);
+    runId = result.insertedId;
+    console.log(`Pipeline run started with ID: ${runId}`);
+
     for (const step of steps) {
       // Skip if marked to skip
       if (step.skip) {
@@ -41,28 +59,121 @@ async function runPipeline(files, options = {}) {
       // Skip if condition not met
       if (step.condition && !step.condition()) {
         console.log(`Skipping ${step.name} - no input file`);
+        
+        // Update DB with skipped step
+        await collection.updateOne(
+          { _id: runId },
+          { 
+            $set: { currentStep: step.name },
+            $push: { completedSteps: { name: step.name, status: 'skipped', timestamp: new Date() } }
+          }
+        );
         continue;
       }
 
       console.log(`Running ${step.name}...`);
-      context.status = step.name;
-      await step.fn(context);
       
-      console.log(`✓ ${step.name} completed`);
+      // Update DB - step starting
+      await collection.updateOne(
+        { _id: runId },
+        { $set: { currentStep: step.name } }
+      );
+
+      context.status = step.name;
+      const stepStartTime = Date.now();
+      
+      try {
+        await step.fn(context);
+        const stepDuration = Date.now() - stepStartTime;
+        
+        // Update DB - step completed
+        await collection.updateOne(
+          { _id: runId },
+          { 
+            $push: { 
+              completedSteps: { 
+                name: step.name, 
+                status: 'completed', 
+                timestamp: new Date(),
+                duration: stepDuration 
+              } 
+            }
+          }
+        );
+        
+        console.log(`✓ ${step.name} completed`);
+        
+      } catch (stepError) {
+        // Update DB - step failed
+        await collection.updateOne(
+          { _id: runId },
+          { 
+            $set: { 
+              status: 'failed',
+              error: stepError.message,
+              endTime: new Date()
+            },
+            $push: { 
+              completedSteps: { 
+                name: step.name, 
+                status: 'error', 
+                timestamp: new Date(),
+                error: stepError.message 
+              } 
+            }
+          }
+        );
+        throw stepError;
+      }
     }
 
     context.status = 'completed';
     const duration = Date.now() - context.startTime;
+    
+    // Update DB - pipeline completed
+    await collection.updateOne(
+      { _id: runId },
+      { 
+        $set: { 
+          status: 'completed',
+          currentStep: 'completed',
+          endTime: new Date(),
+          duration: duration,
+          results: context.outputs
+        }
+      }
+    );
+    
     console.log(`Pipeline completed in ${Math.round(duration/1000)}s`);
     
     return {
       success: true,
       duration,
-      outputs: context.outputs
+      outputs: context.outputs,
+      runId: runId.toString()
     };
 
   } catch (error) {
     console.error(`Pipeline failed at ${context.status}:`, error.message);
+    
+    // Update DB - pipeline failed
+    if (runId) {
+      const db = getDatabase();
+      const collection = db.collection('pipeline_runs');
+      
+      await collection.updateOne(
+        { _id: runId },
+        { 
+          $set: { 
+            status: 'failed',
+            error: error.message,
+            endTime: new Date(),
+            duration: Date.now() - context.startTime
+          }
+        }
+      );
+    }
+    
     throw error;
     
   } finally {
@@ -75,4 +186,89 @@ async function runPipeline(files, options = {}) {
   }
 }
 
-module.exports = { runPipeline };
+// Get current pipeline status from MongoDB
+async function getCurrentPipelineStatus() {
+  try {
+    const db = getDatabase();
+    const collection = db.collection('pipeline_runs');
+    
+    // Find the most recent running pipeline
+    const currentRun = await collection
+      .findOne(
+        { status: 'running' },
+        { sort: { timestamp: -1 } }
+      );
+    
+    if (!currentRun) {
+      return {
+        running: false,
+        status: 'idle',
+        currentStep: null,
+        progress: 0,
+        steps: []
+      };
+    }
+    
+    const allSteps = [
+      'connect_vpn', 'backup_tables', 'process_claims',
+      'process_mcn_verdicts', 'process_jfm_verdicts',
+      'export_views', 'enrich_ml', 'upload_drive'
+    ];
+    
+    const completedStepNames = currentRun.completedSteps?.map(s => s.name) || [];
+    const progress = Math.round((completedStepNames.length / allSteps.length) * 100);
+    
+    const steps = allSteps.map(stepName => {
+      const completed = currentRun.completedSteps?.find(s => s.name === stepName);
+      
+      if (completed) {
+        return {
+          id: stepName,
+          name: formatStepName(stepName),
+          status: completed.status,
+          timestamp: completed.timestamp,
+          duration: completed.duration,
+          error: completed.error
+        };
+      } else if (currentRun.currentStep === stepName) {
+        return {
+          id: stepName,
+          name: formatStepName(stepName),
+          status: 'running'
+        };
+      } else {
+        return {
+          id: stepName,
+          name: formatStepName(stepName),
+          status: 'pending'
+        };
+      }
+    });
+    
+    return {
+      running: true,
+      status: currentRun.currentStep || 'running',
+      currentStep: currentRun.currentStep,
+      progress,
+      steps,
+      startTime: currentRun.startTime,
+      runId: currentRun._id.toString()
+    };
+    
+  } catch (error) {
+    console.error('Error getting pipeline status:', error);
+    return {
+      running: false,
+      status: 'error',
+      error: error.message
+    };
+  }
+}
+
+function formatStepName(step) {
+  return step
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, l => l.toUpperCase());
+}
+
+module.exports = { runPipeline, getCurrentPipelineStatus };

@@ -1,44 +1,66 @@
-// Simple in-memory storage (replace with database in production)
-let pipelineRuns = [];
+const { getDatabase } = require('../database');
 
 // Store a completed pipeline run
-function storeRun(runData) {
-  const run = {
-    id: Date.now().toString(),
-    timestamp: new Date().toISOString(),
-    status: runData.status, // 'completed' | 'failed'
-    duration: runData.duration,
-    files: runData.files,
-    results: runData.results,
-    error: runData.error
-  };
-  
-  pipelineRuns.unshift(run); // Add to beginning
-  
-  // Keep only last 50 runs
-  if (pipelineRuns.length > 50) {
-    pipelineRuns = pipelineRuns.slice(0, 50);
+async function storeRun(runData) {
+  try {
+    const db = getDatabase();
+    const collection = db.collection('pipeline_runs');
+    
+    const run = {
+      timestamp: new Date(),
+      status: runData.status, // 'idle' | 'completed' | 'failed' | 'running'
+      duration: runData.duration,
+      files: runData.files,
+      results: runData.results,
+      error: runData.error
+    };
+    
+    const result = await collection.insertOne(run);
+    return { ...run, id: result.insertedId.toString() };
+    
+  } catch (error) {
+    console.error('Store run error:', error);
+    throw error;
   }
-  
-  return run;
 }
 
 // Get pipeline run history
-function getHistory(req, res) {
+async function getHistory(req, res) {
   try {
-    const stats = {
-      total: pipelineRuns.length,
-      successful: pipelineRuns.filter(r => r.status === 'completed').length,
-      failed: pipelineRuns.filter(r => r.status === 'failed').length,
-      avgDuration: pipelineRuns.length > 0 
-        ? Math.round(pipelineRuns.reduce((sum, run) => sum + (run.duration || 0), 0) / pipelineRuns.length)
-        : 0
-    };
+    const db = getDatabase();
+    const collection = db.collection('pipeline_runs');
+    
+    // Get runs sorted by timestamp descending, limit to 50
+    const runs = await collection
+      .find({})
+      .sort({ timestamp: -1 })
+      .limit(50)
+      .toArray();
+    
+    // Convert MongoDB _id to id and format for frontend
+    const formattedRuns = runs.map(run => ({
+      id: run._id.toString(),
+      timestamp: run.timestamp,
+      status: run.status,
+      duration: run.duration,
+      files: run.files || {},
+      results: run.results,
+      error: run.error
+    }));
+    
+    // Calculate stats
+    const total = runs.length;
+    const successful = runs.filter(r => r.status === 'completed').length;
+    const failed = runs.filter(r => r.status === 'failed').length;
+    const avgDuration = runs.length > 0 
+      ? Math.round(runs.reduce((sum, run) => sum + (run.duration || 0), 0) / runs.length)
+      : 0;
 
     res.json({
-      runs: pipelineRuns,
-      stats
+      runs: formattedRuns,
+      stats: { total, successful, failed, avgDuration }
     });
+    
   } catch (error) {
     console.error('History fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch history' });
@@ -52,7 +74,8 @@ async function retryRun(req, res) {
     const collection = db.collection('pipeline_runs');
     
     const runId = req.params.id;
-    const originalRun = await collection.findOne({ _id: require('mongodb').ObjectId(runId) });
+    const { ObjectId } = require('mongodb');
+    const originalRun = await collection.findOne({ _id: new ObjectId(runId) });
     
     if (!originalRun) {
       return res.status(404).json({ error: 'Run not found' });
