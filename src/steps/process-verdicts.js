@@ -81,6 +81,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   // Update main tables
   const targetTable = type === 'mcn' ? 'youtube_mcn_claims' : 'youtube_channel_videos';
+  const timestampField = type === 'mcn' ? 'verdict_last_updated_date' : 'updated_at';
 
   await mysql.query(`
     UPDATE ${targetTable} c, ${tableName} v
@@ -96,7 +97,8 @@ async function processVerdictFile(mysql, filePath, type, context) {
           WHEN v.language_id = '-' THEN NULL 
           ELSE v.language_id 
         END,
-        c.no_code = CASE WHEN v.no_code IS NOT NULL THEN v.no_code ELSE c.no_code END
+        c.no_code = CASE WHEN v.no_code IS NOT NULL THEN v.no_code ELSE c.no_code END,
+        c.${timestampField} = NOW()
     WHERE c.video_id = v.video_id
   `);
 
