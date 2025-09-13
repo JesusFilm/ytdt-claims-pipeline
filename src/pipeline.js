@@ -35,7 +35,7 @@ async function runPipeline(files, options = {}) {
     // Create initial run record
     const db = getDatabase();
     const collection = db.collection('pipeline_runs');
-    
+
     const initialRun = {
       timestamp: new Date(),
       status: 'running',
@@ -44,7 +44,7 @@ async function runPipeline(files, options = {}) {
       files: files,
       startTime: new Date()
     };
-    
+
     const result = await collection.insertOne(initialRun);
     runId = result.insertedId;
     console.log(`Pipeline run started with ID: ${runId}`);
@@ -59,11 +59,11 @@ async function runPipeline(files, options = {}) {
       // Skip if condition not met
       if (step.condition && !step.condition()) {
         console.log(`Skipping ${step.name} - no input file`);
-        
+
         // Update DB with skipped step
         await collection.updateOne(
           { _id: runId },
-          { 
+          {
             $set: { currentStep: step.name },
             $push: { completedSteps: { name: step.name, status: 'skipped', timestamp: new Date() } }
           }
@@ -72,7 +72,7 @@ async function runPipeline(files, options = {}) {
       }
 
       console.log(`Running ${step.name}...`);
-      
+
       // Update DB - step starting
       await collection.updateOne(
         { _id: runId },
@@ -81,45 +81,46 @@ async function runPipeline(files, options = {}) {
 
       context.status = step.name;
       const stepStartTime = Date.now();
-      
+
       try {
         await step.fn(context);
         const stepDuration = Date.now() - stepStartTime;
-        
+
         // Update DB - step completed
         await collection.updateOne(
           { _id: runId },
-          { 
-            $push: { 
-              completedSteps: { 
-                name: step.name, 
-                status: 'completed', 
+          {
+            $push: {
+              completedSteps: {
+                name: step.name,
+                status: 'completed',
                 timestamp: new Date(),
-                duration: stepDuration 
-              } 
+                duration: stepDuration,
+                error: null
+              }
             }
           }
         );
-        
+
         console.log(`✓ ${step.name} completed`);
-        
+
       } catch (stepError) {
         // Update DB - step failed
         await collection.updateOne(
           { _id: runId },
-          { 
-            $set: { 
+          {
+            $set: {
               status: 'failed',
               error: stepError.message,
               endTime: new Date()
             },
-            $push: { 
-              completedSteps: { 
-                name: step.name, 
-                status: 'error', 
+            $push: {
+              completedSteps: {
+                name: step.name,
+                status: 'error',
                 timestamp: new Date(),
-                error: stepError.message 
-              } 
+                error: stepError.message
+              }
             }
           }
         );
@@ -129,12 +130,12 @@ async function runPipeline(files, options = {}) {
 
     context.status = 'completed';
     const duration = Date.now() - context.startTime;
-    
+
     // Update DB - pipeline completed
     await collection.updateOne(
       { _id: runId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'completed',
           currentStep: 'completed',
           endTime: new Date(),
@@ -143,9 +144,9 @@ async function runPipeline(files, options = {}) {
         }
       }
     );
-    
-    console.log(`Pipeline completed in ${Math.round(duration/1000)}s`);
-    
+
+    console.log(`Pipeline completed in ${Math.round(duration / 1000)}s`);
+
     return {
       success: true,
       duration,
@@ -155,16 +156,16 @@ async function runPipeline(files, options = {}) {
 
   } catch (error) {
     console.error(`Pipeline failed at ${context.status}:`, error.message);
-    
+
     // Update DB - pipeline failed
     if (runId) {
       const db = getDatabase();
       const collection = db.collection('pipeline_runs');
-      
+
       await collection.updateOne(
         { _id: runId },
-        { 
-          $set: { 
+        {
+          $set: {
             status: 'failed',
             error: error.message,
             endTime: new Date(),
@@ -173,9 +174,9 @@ async function runPipeline(files, options = {}) {
         }
       );
     }
-    
+
     throw error;
-    
+
   } finally {
     // Always disconnect VPN
     try {
@@ -191,14 +192,14 @@ async function getCurrentPipelineStatus() {
   try {
     const db = getDatabase();
     const collection = db.collection('pipeline_runs');
-    
+
     // Find the most recent running pipeline
     const currentRun = await collection
       .findOne(
         { status: 'running' },
         { sort: { timestamp: -1 } }
       );
-    
+
     if (!currentRun) {
       return {
         running: false,
@@ -208,19 +209,19 @@ async function getCurrentPipelineStatus() {
         steps: []
       };
     }
-    
+
     const allSteps = [
       'connect_vpn', 'backup_tables', 'process_claims',
       'process_mcn_verdicts', 'process_jfm_verdicts',
       'export_views', 'enrich_ml', 'upload_drive'
     ];
-    
+
     const completedStepNames = currentRun.completedSteps?.map(s => s.name) || [];
     const progress = Math.round((completedStepNames.length / allSteps.length) * 100);
-    
+
     const steps = allSteps.map(stepName => {
       const completed = currentRun.completedSteps?.find(s => s.name === stepName);
-      
+
       if (completed) {
         return {
           id: stepName,
@@ -244,7 +245,7 @@ async function getCurrentPipelineStatus() {
         };
       }
     });
-    
+
     return {
       running: true,
       status: currentRun.currentStep || 'running',
@@ -254,7 +255,7 @@ async function getCurrentPipelineStatus() {
       startTime: currentRun.startTime,
       runId: currentRun._id.toString()
     };
-    
+
   } catch (error) {
     console.error('Error getting pipeline status:', error);
     return {

@@ -1,28 +1,5 @@
 const { getDatabase } = require('../database');
 
-// Store a completed pipeline run
-async function storeRun(runData) {
-  try {
-    const db = getDatabase();
-    const collection = db.collection('pipeline_runs');
-    
-    const run = {
-      timestamp: new Date(),
-      status: runData.status, // 'idle' | 'completed' | 'failed' | 'running'
-      duration: runData.duration,
-      files: runData.files,
-      results: runData.results,
-      error: runData.error
-    };
-    
-    const result = await collection.insertOne(run);
-    return { ...run, id: result.insertedId.toString() };
-    
-  } catch (error) {
-    console.error('Store run error:', error);
-    throw error;
-  }
-}
 
 // Get pipeline run history
 async function getHistory(req, res) {
@@ -45,7 +22,8 @@ async function getHistory(req, res) {
       duration: run.duration,
       files: run.files || {},
       results: run.results,
-      error: run.error
+      completedSteps: run.completedSteps || [],
+      error: run.error,
     }));
     
     // Calculate stats
@@ -94,7 +72,6 @@ async function retryRun(req, res) {
 }
 
 module.exports = {
-  storeRun,
   getHistory,
   retryRun
 };

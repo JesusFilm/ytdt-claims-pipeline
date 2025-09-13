@@ -15,7 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 // File upload config
-const upload = multer({ 
+const upload = multer({
   dest: 'data/uploads/',
   limits: { fileSize: 1024 * 1024 * 1000 } // 1GB
 });
@@ -40,18 +40,18 @@ async function initializeApp() {
 }
 
 // Main pipeline endpoint
-app.post('/api/run', 
+app.post('/api/run',
   upload.fields([
     { name: 'claims', maxCount: 1 },
     { name: 'mcn_verdicts', maxCount: 1 },
     { name: 'jfm_verdicts', maxCount: 1 }
-  ]), 
+  ]),
   async (req, res) => {
-    
+
     if (pipelineStatus.running) {
-      return res.status(409).json({ 
+      return res.status(409).json({
         error: 'Pipeline already running',
-        status: pipelineStatus.status 
+        status: pipelineStatus.status
       });
     }
 
@@ -73,21 +73,6 @@ app.post('/api/run',
     // Run pipeline in background
     runPipeline(files)
       .then(async (result) => {
-        const duration = Date.now() - pipelineStatus.startTime;
-        
-        // Store completed run
-        await historyController.storeRun({
-          status: 'completed',
-          duration,
-          files: {
-            claims: req.files.claims?.[0]?.originalname,
-            claimsSource: files.claimsSource,
-            mcnVerdicts: req.files.mcn_verdicts?.[0]?.originalname,
-            jfmVerdicts: req.files.jfm_verdicts?.[0]?.originalname
-          },
-          results: result.outputs
-        });
-        
         pipelineStatus = {
           running: false,
           status: 'completed',
@@ -97,21 +82,6 @@ app.post('/api/run',
         };
       })
       .catch(async (error) => {
-        const duration = Date.now() - pipelineStatus.startTime;
-        
-        // Store failed run
-        await historyController.storeRun({
-          status: 'failed',
-          duration,
-          files: {
-            claims: req.files.claims?.[0]?.originalname,
-            claimsSource: files.claimsSource,
-            mcnVerdicts: req.files.mcn_verdicts?.[0]?.originalname,
-            jfmVerdicts: req.files.jfm_verdicts?.[0]?.originalname
-          },
-          error: error.message
-        });
-        
         pipelineStatus = {
           running: false,
           status: 'failed',
@@ -120,7 +90,7 @@ app.post('/api/run',
         };
       });
 
-    res.json({ 
+    res.json({
       message: 'Pipeline started',
       files: {
         claims: req.files.claims?.[0]?.originalname,
@@ -128,7 +98,7 @@ app.post('/api/run',
         jfmVerdicts: req.files.jfm_verdicts?.[0]?.originalname
       }
     });
-});
+  });
 
 // Mount API routes
 app.use('/api', createApiRoutes(pipelineStatus));
@@ -149,7 +119,7 @@ process.on('SIGTERM', async () => {
 // Start server
 async function startServer() {
   await initializeApp();
-  
+
   app.listen(PORT, () => {
     console.log(`API running on port ${PORT}`);
   });

@@ -7,7 +7,18 @@ Node.js API server.
 
 ### Requisites
 
-1. **OpenVPN** – Setup, start, and test  
+1. **MongoDB** 
+
+```shell
+docker run -d \
+  --name mongodb \
+  --restart unless-stopped \
+  -p 27017:27017 \
+  -v mongodb_data:/data/db \
+  mongo:6
+```
+
+2. **OpenVPN** – Setup, start, and test  
 
 Drop `ca.crt`, `client.crt`, `client.key`, `client.ovpn` into `./config/vpn`,  
 then install OpenVPN binary and dry-test (one-time):
