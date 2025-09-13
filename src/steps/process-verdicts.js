@@ -102,19 +102,19 @@ async function processVerdictFile(mysql, filePath, type, context) {
     WHERE c.video_id = v.video_id
   `);
 
-  // Check for invalid MCIDs
-  const [invalidMCIDs] = await mysql.query(`
-    SELECT COUNT(*) as count FROM ${tableName} v
-    WHERE v.media_component_id IS NOT NULL 
-    AND v.media_component_id != '-'
-    AND v.media_component_id NOT IN (
-      SELECT media_component_id FROM bi_view_media_component
-    )
-  `);
+  // Get invalid MCIDs
+  const [invalidMCIDsData] = await mysql.query(`
+  SELECT media_component_id FROM ${tableName} v
+  WHERE v.media_component_id IS NOT NULL 
+  AND v.media_component_id != '-'
+  AND v.media_component_id NOT IN (
+    SELECT media_component_id FROM bi_view_media_component
+  )
+`);
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
-    invalidMCIDs: invalidMCIDs[0].count
+    invalidMCIDs: invalidMCIDsData.map(row => row.media_component_id)
   };
 }
 
