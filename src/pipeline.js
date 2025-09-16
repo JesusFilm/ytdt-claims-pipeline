@@ -50,6 +50,7 @@ async function runPipeline(files, options = {}) {
     console.log(`Pipeline run started with ID: ${runId}`);
 
     for (const step of steps) {
+      
       // Skip if marked to skip
       if (step.skip) {
         console.log(`Skipping ${step.name} - ${options.testMode ? 'test mode' : 'skipped'}`);
