@@ -140,7 +140,7 @@ async function runPipeline(files, options = {}) {
     const duration = Date.now() - context.startTime;
 
     // Update DB - pipeline completed
-    await checkAndUpdateCompletion(runId, {
+    await updatePipelineResults(runId, {
       duration: duration,
       results: context.outputs
     });
@@ -266,29 +266,36 @@ async function getCurrentPipelineStatus() {
   }
 }
 
-// Update pipeline run status to 'completed' iff all steps completed 
-async function checkAndUpdateCompletion(runId, completionData = {}) {
+// Sync pipeline results to the db and mark as completed if no running steps
+async function updatePipelineResults(runId, completionData = {}) {
+  
   const db = getDatabase();
-
   const run = await db.collection('pipeline_runs').findOne({ _id: runId });
+  const updateFields = {};
+  
+  // Add optional completion data if provided
+  if (completionData.results) {
+    const existingResults = run.results || {};
+    updateFields.results = { ...existingResults, ...completionData.results };
+  }
+  
+  // Check if pipeline can be marked complete
   const hasRunningSteps = run?.startedSteps?.some(step => step.status === 'running');
-
+  
   if (!hasRunningSteps && run.status === 'running') {
-    const updateFields = {
-      status: 'completed',
-      currentStep: 'completed',
-      endTime: new Date()
-    };
-
-    // Add optional completion data if provided
+    updateFields.status = 'completed';
+    updateFields.currentStep = 'completed';
+    updateFields.endTime = new Date();
     if (completionData.duration) updateFields.duration = completionData.duration;
-    if (completionData.results) updateFields.results = completionData.results;
-
+    console.log('Pipeline marked as completed');
+  }
+  
+  // Update DB if we have any fields to set (don't wait for completion)
+  if (Object.keys(updateFields).length > 0) {
     await db.collection('pipeline_runs').updateOne(
       { _id: runId },
       { $set: updateFields }
     );
-    console.log('Pipeline marked as completed');
   }
 }
 
@@ -301,5 +308,5 @@ function formatStepName(step) {
 module.exports = { 
   runPipeline, 
   getCurrentPipelineStatus,
-  checkAndUpdateCompletion
+  checkAndUpdateCompletion: updatePipelineResults
 };
