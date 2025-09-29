@@ -45,6 +45,13 @@ async function handleMLWebhook(req, res) {
     console.log(`ML webhook received: '${status}' for task ${task_id}, pipeline_run_id: ${pipeline_run_id}`);
     
     const db = getDatabase();
+
+    // Find enrich_ml step to calculate duration
+    const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(pipeline_run_id) });
+    const enrichStep = run?.startedSteps?.find(s => s.name === 'enrich_ml');
+    const duration = enrichStep?.timestamp ? Date.now() - new Date(enrichStep.timestamp).getTime() : 0;
+
+    // Set ML result and mark enrich_ml step as completed
     await db.collection('pipeline_runs').updateOne(
       { _id: new ObjectId(pipeline_run_id) },
       { $set: { 
@@ -55,7 +62,8 @@ async function handleMLWebhook(req, res) {
             csv_path, 
             updated_at: new Date()
           },
-          'completedSteps.$[elem].status': 'completed'
+          'startedSteps.$[elem].status': 'completed',
+          'startedSteps.$[elem].duration': duration
         } 
       },
       { arrayFilters: [{ 'elem.name': 'enrich_ml' }] }

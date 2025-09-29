@@ -42,7 +42,7 @@ async function runPipeline(files, options = {}) {
       timestamp: new Date(),
       status: 'running',
       currentStep: 'starting',
-      completedSteps: [],
+      startedSteps: [],
       files: files,
       startTime: new Date()
     };
@@ -69,7 +69,7 @@ async function runPipeline(files, options = {}) {
           { _id: runId },
           {
             $set: { currentStep: step.name },
-            $push: { completedSteps: { name: step.name, status: 'skipped', timestamp: new Date() } }
+            $push: { startedSteps: { name: step.name, status: 'skipped', timestamp: new Date() } }
           }
         );
         continue;
@@ -98,7 +98,7 @@ async function runPipeline(files, options = {}) {
           { _id: runId },
           {
             $push: {
-              completedSteps: {
+              startedSteps: {
                 name: step.name,
                 status,
                 timestamp: new Date(),
@@ -123,7 +123,7 @@ async function runPipeline(files, options = {}) {
               endTime: new Date()
             },
             $push: {
-              completedSteps: {
+              startedSteps: {
                 name: step.name,
                 status: 'error',
                 timestamp: new Date(),
@@ -216,11 +216,11 @@ async function getCurrentPipelineStatus() {
       'export_views', 'enrich_ml', 'upload_drive'
     ];
 
-    const completedStepNames = currentRun.completedSteps?.map(s => s.name) || [];
-    const progress = Math.round((completedStepNames.length / allSteps.length) * 100);
+    const completedCount = currentRun.startedSteps?.filter(s => s.status === 'completed').length || 0;
+    const progress = Math.round((completedCount / allSteps.length) * 100);
 
     const steps = allSteps.map(stepName => {
-      const completed = currentRun.completedSteps?.find(s => s.name === stepName);
+      const completed = currentRun.startedSteps?.find(s => s.name === stepName);
 
       if (completed) {
         return {
@@ -271,7 +271,7 @@ async function checkAndUpdateCompletion(runId, completionData = {}) {
   const db = getDatabase();
 
   const run = await db.collection('pipeline_runs').findOne({ _id: runId });
-  const hasRunningSteps = run?.completedSteps?.some(step => step.status === 'running');
+  const hasRunningSteps = run?.startedSteps?.some(step => step.status === 'running');
 
   if (!hasRunningSteps && run.status === 'running') {
     const updateFields = {

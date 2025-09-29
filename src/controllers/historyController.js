@@ -23,7 +23,7 @@ async function getHistory(req, res) {
       duration: run.duration,
       files: run.files || {},
       results: run.results,
-      completedSteps: run.completedSteps || [],
+      startedSteps: run.startedSteps || [],
       error: run.error,
     }));
     
