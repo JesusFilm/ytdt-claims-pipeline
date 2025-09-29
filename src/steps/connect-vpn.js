@@ -1,13 +1,16 @@
 const { spawn } = require('child_process');
 const mysql = require('mysql2/promise');
+const path = require('path');
+
 
 async function connectVPN(context) {
+
   // Simple VPN connection using openvpn with certificates
   await new Promise((resolve, reject) => {
     const vpn = spawn('openvpn', [
       '--config', process.env.VPN_CONFIG_FILE,
       '--daemon',
-      '--log', '/tmp/vpn.log'  // Add logging
+      '--log', path.join(process.cwd(), 'logs', 'vpn.log')
     ]);
 
     vpn.on('error', reject);

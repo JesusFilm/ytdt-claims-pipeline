@@ -8,6 +8,8 @@ const enrichML = require('./steps/enrich-ml');
 const uploadDrive = require('./steps/upload-drive');
 const { getDatabase } = require('./database');
 
+
+// Main pipeline runner
 async function runPipeline(files, options = {}) {
   const context = {
     files,
@@ -25,7 +27,7 @@ async function runPipeline(files, options = {}) {
     { name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts },
     { name: 'process_jfm_verdicts', fn: processVerdicts, condition: () => !!files.jfmVerdicts },
     { name: 'export_views', fn: exportViews },
-    { name: 'enrich_ml', fn: enrichML },
+    { name: 'enrich_ml', fn: enrichML, condition: () => context.outputs.exports?.export_unprocessed_claims },
     { name: 'upload_drive', fn: uploadDrive }
   ];
 
@@ -47,10 +49,11 @@ async function runPipeline(files, options = {}) {
 
     const result = await collection.insertOne(initialRun);
     runId = result.insertedId;
+    context.runId = runId.toString();
     console.log(`Pipeline run started with ID: ${runId}`);
 
     for (const step of steps) {
-      
+
       // Skip if marked to skip
       if (step.skip) {
         console.log(`Skipping ${step.name} - ${options.testMode ? 'test mode' : 'skipped'}`);
@@ -84,17 +87,20 @@ async function runPipeline(files, options = {}) {
       const stepStartTime = Date.now();
 
       try {
-        await step.fn(context);
-        const stepDuration = Date.now() - stepStartTime;
+
+        // Run and extract step completion status
+        const result = await step.fn(context);
+        const status = Object.keys(result || {}).length ? result.status : 'completed'
 
         // Update DB - step completed
+        const stepDuration = Date.now() - stepStartTime;
         await collection.updateOne(
           { _id: runId },
           {
             $push: {
               completedSteps: {
                 name: step.name,
-                status: 'completed',
+                status,
                 timestamp: new Date(),
                 duration: stepDuration,
                 error: null
@@ -103,10 +109,11 @@ async function runPipeline(files, options = {}) {
           }
         );
 
-        console.log(`✓ ${step.name} completed`);
+        console.log(`✓ ${step.name} ${status}`);
 
       } catch (stepError) {
-        // Update DB - step failed
+
+        // Update DB - step failed to run
         await collection.updateOne(
           { _id: runId },
           {
@@ -133,18 +140,10 @@ async function runPipeline(files, options = {}) {
     const duration = Date.now() - context.startTime;
 
     // Update DB - pipeline completed
-    await collection.updateOne(
-      { _id: runId },
-      {
-        $set: {
-          status: 'completed',
-          currentStep: 'completed',
-          endTime: new Date(),
-          duration: duration,
-          results: context.outputs
-        }
-      }
-    );
+    await checkAndUpdateCompletion(runId, {
+      duration: duration,
+      results: context.outputs
+    });
 
     console.log(`Pipeline completed in ${Math.round(duration / 1000)}s`);
 
@@ -267,10 +266,40 @@ async function getCurrentPipelineStatus() {
   }
 }
 
+// Update pipeline run status to 'completed' iff all steps completed 
+async function checkAndUpdateCompletion(runId, completionData = {}) {
+  const db = getDatabase();
+
+  const run = await db.collection('pipeline_runs').findOne({ _id: runId });
+  const hasRunningSteps = run?.completedSteps?.some(step => step.status === 'running');
+
+  if (!hasRunningSteps && run.status === 'running') {
+    const updateFields = {
+      status: 'completed',
+      currentStep: 'completed',
+      endTime: new Date()
+    };
+
+    // Add optional completion data if provided
+    if (completionData.duration) updateFields.duration = completionData.duration;
+    if (completionData.results) updateFields.results = completionData.results;
+
+    await db.collection('pipeline_runs').updateOne(
+      { _id: runId },
+      { $set: updateFields }
+    );
+    console.log('Pipeline marked as completed');
+  }
+}
+
 function formatStepName(step) {
   return step
     .replace(/_/g, ' ')
     .replace(/\b\w/g, l => l.toUpperCase());
 }
 
-module.exports = { runPipeline, getCurrentPipelineStatus };
+module.exports = { 
+  runPipeline, 
+  getCurrentPipelineStatus,
+  checkAndUpdateCompletion
+};

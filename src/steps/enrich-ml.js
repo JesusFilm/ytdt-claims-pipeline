@@ -1,9 +1,14 @@
 const axios = require('axios');
-const fs = require('fs').promises;
-const csv = require('csv-parse/sync');
-const { stringify } = require('csv-stringify/sync');
+const FormData = require("form-data"); 
+const fs = require('fs');
 
 
+/**
+ * Enrich unprocessed claims via external ML service (e.g. YT-Validator)
+ * Sends CSV file to ML API endpoint, which should return immediately with a task ID,
+ * a status of "running", eg. {"status":"running","task_id":"00dbf7d6-f525-43fb-86c9-c47d8804d931"}
+ * The ML service will call back our webhook when done.
+ */
 async function enrichML(context) {
   
   const unprocessedPath = context.outputs.exports?.export_unprocessed_claims?.path;
@@ -13,29 +18,25 @@ async function enrichML(context) {
   }
 
   try {
-    // Call ML API (or use dummy data for now)
+
     if (process.env.ML_API_ENDPOINT) {
+
       const formData = new FormData();
-      formData.append('file', await fs.readFile(unprocessedPath));
-      
-      const response = await axios.post(process.env.ML_API_ENDPOINT, formData);
-      await fs.writeFile(unprocessedPath, response.data);
+      formData.append('file', fs.createReadStream(unprocessedPath));
+      formData.append('webhook_url', `${process.env.BASE_URL}/api/ml-webhook`); 
+      formData.append('pipeline_run_id', context.runId);  // TODO: make required ?
+      formData.append('skip_validation', String(true));
+
+      const response = await axios.post(process.env.ML_API_ENDPOINT, formData, {headers: formData.getHeaders()});
+      console.log('ML enrichment running: ', response.data);
+      return response.data
+
     } else {
-      // Add dummy ratings
-      const content = await fs.readFile(unprocessedPath, 'utf8');
-      const rows = csv.parse(content, { columns: true });
-      
-      rows.forEach(row => {
-        row.rating = Math.random(); // Dummy rating 0-1
-      });
-      
-      const enrichedCSV = stringify(rows, { header: true });
-      await fs.writeFile(unprocessedPath, enrichedCSV);
+      throw new Error("ML enrichment disabled: env not set `ML_API_ENDPOINT`")
     }
     
-    console.log('ML enrichment completed');
   } catch (error) {
-    console.warn('ML enrichment failed, continuing without ratings:', error.message);
+    throw new Error('ML enrichment failed:' + error.message)
   }
 }
 

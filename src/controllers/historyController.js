@@ -1,4 +1,5 @@
 const { getDatabase } = require('../database');
+const { ObjectId } = require('mongodb');
 
 
 // Get pipeline run history
@@ -52,7 +53,6 @@ async function retryRun(req, res) {
     const collection = db.collection('pipeline_runs');
     
     const runId = req.params.id;
-    const { ObjectId } = require('mongodb');
     const originalRun = await collection.findOne({ _id: new ObjectId(runId) });
     
     if (!originalRun) {
