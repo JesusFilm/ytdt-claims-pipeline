@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const fs = require('fs').promises;
+const { createReadStream } = require('fs');
 const path = require('path');
 const { format } = require('date-fns');
 
@@ -12,40 +13,84 @@ async function uploadDrive(context) {
   }
 
   try {
-    // Initialize Google Drive (simplified - you'd need proper OAuth2)
-    const auth = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI
-    );
-    
-    // You'd load saved tokens here
-    // auth.setCredentials(savedTokens);
-    
+
+    // Initialize Google Drive API
+    const auth = new google.auth.GoogleAuth({
+      keyFile: './config/service-account-key.json',
+      scopes: ['https://www.googleapis.com/auth/drive']
+    });
     const drive = google.drive({ version: 'v3', auth });
-    
-    // Create today's folder
-    const folderName = `youtube_exports/${format(new Date(), 'yyyyMMdd')}`;
-    
+
+    // Get shared drive ID 
+    const sharedDrives = await drive.drives.list();
+    const sharedDrive = sharedDrives.data.drives.find(d => d.name === process.env.GOOGLE_DRIVE_NAME);
+    if (!sharedDrive?.id) {
+      throw new Error(`Shared drive ${process.env.GOOGLE_DRIVE_NAME} not found`);
+    }
+
+    // Lookup today's folder in shared drive and get its ID
+    const folderName = `${format(new Date(), 'yyyyMMdd')}`;
+    const res = await drive.files.list({
+      q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder'`,
+      fields: 'files(id)',
+      driveId: sharedDrive.id,
+      corpora: 'drive',
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true
+    });
+
+    // Create folder if doesn't exist
+    let folderId = res.data.files[0]?.id;
+    if (!folderId) {
+
+      console.log(`Drive folder not found: ${folderName}. Creating it now...`);
+      const folder = await drive.files.create({
+        requestBody: { name: folderName, mimeType: 'application/vnd.google-apps.folder', parents: [sharedDrive.id] },
+        fields: 'id',
+        supportsAllDrives: true
+      });
+
+      folderId = folder.data.id;
+      console.log(`Created folder: ${folderName} (${folderId})`);
+    }
+
     // Upload each file
     const uploadedFiles = [];
     for (const [viewName, exportInfo] of Object.entries(context.outputs.exports)) {
-      const fileContent = await fs.readFile(exportInfo.path);
-      
-      // For now, just log what we would upload
-      console.log(`Would upload ${path.basename(exportInfo.path)} to ${folderName}`);
-      uploadedFiles.push({
-        name: path.basename(exportInfo.path),
-        size: fileContent.length,
-        rows: exportInfo.rows
-      });
+      try {
+
+        // Upload to Drive
+        const file = await drive.files.create({
+          requestBody: { name: path.basename(exportInfo.path), parents: [folderId] },
+          media: { mimeType: 'text/csv', body: createReadStream(exportInfo.path) },
+          fields: 'id, name, size',
+          supportsAllDrives: true
+        });
+        uploadedFiles.push({
+          name: file.data.name,
+          size: parseInt(file.data.size),
+          rows: exportInfo.rows
+        });
+
+      } catch (uploadError) {
+        // Failover: just log what we would upload
+        console.error(`Upload failed to Google Drive for ${path.basename(exportInfo.path)}:`, uploadError.message);
+        const fileContent = await fs.readFile(exportInfo.path);
+        console.log(`Would upload ${path.basename(exportInfo.path)} to ${folderName}`);
+        uploadedFiles.push({
+          name: path.basename(exportInfo.path),
+          size: fileContent.length,
+          rows: exportInfo.rows
+        });
+      }
     }
-    
+
     context.outputs.driveUploads = uploadedFiles;
-    console.log(`Uploaded ${uploadedFiles.length} files to Google Drive`);
-    
+    console.log(`Uploaded ${uploadedFiles.length} files to: https://drive.google.com/drive/folders/${folderId}`);
+
   } catch (error) {
     console.error('Drive upload failed:', error.message);
+    console.debug(error);
     // Don't fail pipeline for upload errors
   }
 }

@@ -27,7 +27,7 @@ async function runPipeline(files, options = {}) {
     { name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts },
     { name: 'process_jfm_verdicts', fn: processVerdicts, condition: () => !!files.jfmVerdicts },
     { name: 'export_views', fn: exportViews },
-    { name: 'enrich_ml', fn: enrichML, condition: () => context.outputs.exports?.export_unprocessed_claims },
+    { name: 'enrich_ml', fn: enrichML, condition: () => process.env.GOOGLE_DRIVE_NAME },
     { name: 'upload_drive', fn: uploadDrive }
   ];
 

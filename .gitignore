@@ -1,6 +1,6 @@
 
-config/vpn
 node_modules/
+config/
 dist/
 logs/
 

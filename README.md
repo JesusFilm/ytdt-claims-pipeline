@@ -28,11 +28,22 @@ brew install openvpn
 sudo openvpn --config ./config/vpn/client.ovpn
 ```
 
+3. **Google Drive** - Optional (for `upload_drive` step)
+
+- Create Service Account on GCP and download to `config/service-account-key.json`
+- Enable the Google Drive API
+
+
 ### API Server
 
 Note: sudo privlieges required
 
 ```shell
+export \
+
+  # Optional envs
+  GOOGLE_DRIVE_NAME=youtube_exports 
+
 yarn dev
 ```
 
