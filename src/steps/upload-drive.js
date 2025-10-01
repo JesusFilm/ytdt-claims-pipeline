@@ -25,11 +25,11 @@ async function uploadDrive(context) {
     const sharedDrives = await drive.drives.list();
     const sharedDrive = sharedDrives.data.drives.find(d => d.name === process.env.GOOGLE_DRIVE_NAME);
     if (!sharedDrive?.id) {
-      throw new Error(`Shared drive ${process.env.GOOGLE_DRIVE_NAME} not found`);
+      throw new Error(`Shared drive not found: ${process.env.GOOGLE_DRIVE_NAME}`);
     }
 
     // Lookup today's folder in shared drive and get its ID
-    const folderName = `${format(new Date(), 'yyyyMMdd')}`;
+    const folderName = `${format(new Date(), 'yyyyMMddHHmmss')}`;
     const res = await drive.files.list({
       q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder'`,
       fields: 'files(id)',
@@ -56,6 +56,7 @@ async function uploadDrive(context) {
 
     // Upload each file
     const uploadedFiles = [];
+    console.log(`Uploading ${Object.keys(context.outputs.exports).length} files to ${process.env.GOOGLE_DRIVE_NAME}/${folderName}`);
     for (const [viewName, exportInfo] of Object.entries(context.outputs.exports)) {
       try {
 
@@ -68,17 +69,18 @@ async function uploadDrive(context) {
         });
         uploadedFiles.push({
           name: file.data.name,
+          path: `https://drive.google.com/file/d/${file.data.id}/view`,
           size: parseInt(file.data.size),
           rows: exportInfo.rows
         });
 
       } catch (uploadError) {
         // Failover: just log what we would upload
-        console.error(`Upload failed to Google Drive for ${path.basename(exportInfo.path)}:`, uploadError.message);
+        console.error(`Upload failed for ${path.basename(exportInfo.path)}:`, uploadError.message);
         const fileContent = await fs.readFile(exportInfo.path);
-        console.log(`Would upload ${path.basename(exportInfo.path)} to ${folderName}`);
         uploadedFiles.push({
           name: path.basename(exportInfo.path),
+          path: exportInfo.path,
           size: fileContent.length,
           rows: exportInfo.rows
         });

@@ -1,10 +1,13 @@
 const fs = require('fs').promises;
 const path = require('path');
 const { stringify } = require('csv-stringify/sync');
+const { format } = require('date-fns');
+
 
 async function exportViews(context) {
+  
   const mysql = context.connections.mysql;
-  const exportDir = path.join(process.cwd(), 'data', 'exports');
+  const exportDir = path.join(process.cwd(), 'data', 'exports', `${format(new Date(), 'yyyyMMddHHmmss')}`);
   await fs.mkdir(exportDir, { recursive: true });
 
   const views = [
