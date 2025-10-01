@@ -58,7 +58,7 @@ async function handleMLWebhook(req, res) {
     const enrichStep = run?.startedSteps?.find(s => s.name === 'enrich_ml');
     const duration = enrichStep?.timestamp ? Date.now() - new Date(enrichStep.timestamp).getTime() : 0;
     const folderName = format(run.startTime, 'yyyyMMddHHmmss');
-    const fileName = `${task_id}.csv`
+    const fileName = `unprocessed_claims_${enrichStep.name}.csv`
 
     // Upload CSV to Drive if successful and Drive is configured
     let driveUpload = null;
