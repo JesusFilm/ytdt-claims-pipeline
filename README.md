@@ -47,6 +47,34 @@ export \
 yarn dev
 ```
 
+eg. `.vscode/launch.json`for debugging:
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "Dev (watch mode)",
+            "runtimeExecutable": "sudo",
+            "runtimeArgs": [ "-E", "./node_modules/.bin/nodemon" ],
+            "program": "${workspaceFolder}/src/api.js",
+            "restart": true,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "NODE_ENV": "development",
+                "GOOGLE_DRIVE_NAME": "youtube_exports"
+            },
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        }
+    ]
+}
+```
+
 
 ### Test Pipeline: Using API
 

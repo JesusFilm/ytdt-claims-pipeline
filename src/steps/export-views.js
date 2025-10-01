@@ -5,9 +5,9 @@ const { format } = require('date-fns');
 
 
 async function exportViews(context) {
-  
+
   const mysql = context.connections.mysql;
-  const exportDir = path.join(process.cwd(), 'data', 'exports', `${format(new Date(), 'yyyyMMddHHmmss')}`);
+  const exportDir = path.join(process.cwd(), 'data', 'exports', format(context.startTime, 'yyyyMMddHHmmss'));
   await fs.mkdir(exportDir, { recursive: true });
 
   const views = [

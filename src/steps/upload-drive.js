@@ -29,7 +29,7 @@ async function uploadDrive(context) {
     }
 
     // Lookup today's folder in shared drive and get its ID
-    const folderName = `${format(new Date(), 'yyyyMMddHHmmss')}`;
+    const folderName = format(context.startTime, 'yyyyMMddHHmmss');
     const res = await drive.files.list({
       q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder'`,
       fields: 'files(id)',
