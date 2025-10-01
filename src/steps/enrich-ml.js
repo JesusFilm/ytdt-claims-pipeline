@@ -1,5 +1,5 @@
 const axios = require('axios');
-const FormData = require("form-data"); 
+const FormData = require("form-data");
 const fs = require('fs');
 
 
@@ -10,7 +10,7 @@ const fs = require('fs');
  * The ML service will call back our webhook when done.
  */
 async function enrichML(context) {
-  
+
   const unprocessedPath = context.outputs.exports?.export_unprocessed_claims?.path;
   if (!unprocessedPath) {
     console.log('No unprocessed claims to enrich');
@@ -19,24 +19,42 @@ async function enrichML(context) {
 
   try {
 
-    if (process.env.ML_API_ENDPOINT) {
-
-      const formData = new FormData();
-      formData.append('file', fs.createReadStream(unprocessedPath));
-      formData.append('webhook_url', `${process.env.BASE_URL}/api/ml-webhook`); 
-      formData.append('pipeline_run_id', context.runId);  // TODO: make required ?
-      formData.append('skip_validation', String(true));
-
-      const response = await axios.post(process.env.ML_API_ENDPOINT, formData, {headers: formData.getHeaders()});
-      console.log('ML enrichment running: ', response.data);
-      return response.data
-
-    } else {
-      throw new Error("ML enrichment disabled: env not set `ML_API_ENDPOINT`")
+    if (!process.env.ML_API_ENDPOINT) {
+      throw new Error('ML enrichment disabled: ML_API_ENDPOINT environment variable not set');
     }
-    
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(unprocessedPath));
+    formData.append('webhook_url', `${process.env.BASE_URL}/api/ml-webhook`);
+    formData.append('pipeline_run_id', context.runId);  // TODO: make required ?
+    formData.append('skip_validation', String(true));
+
+    // Configure axios with 30s timeout and retry logic
+    const response = await axios.post(process.env.ML_API_ENDPOINT, formData, {
+      headers: formData.getHeaders(),
+      timeout: 30000,
+      validateStatus: (status) => status >= 200 && status < 300,
+    });
+
+    console.log('ML enrichment running: ', response.data);
+    return response.data
+
   } catch (error) {
-    throw new Error('ML enrichment failed:' + error.message)
+    // Handle axios-specific errors
+    if (error.code === 'ECONNABORTED') {
+      // Timeout error
+      throw new Error(`ML enrichment failed: Request timed out after ${error.config.timeout}ms`);
+    } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+      // Endpoint down or unreachable
+      throw new Error(`ML enrichment failed: Endpoint ${process.env.ML_API_ENDPOINT} is down or unreachable (${error.code})`);
+    } else if (error.response) {
+      // HTTP error (e.g., 500, 503)
+      const status = error.response.status;
+      const message = error.response.data?.message || 'No additional error details provided';
+      throw new Error(`ML enrichment failed: HTTP ${status} - ${message}`);
+    } else {
+      // Other errors (e.g., invalid FormData, file issues, etc.)
+      throw new Error(`ML enrichment failed: ${error.message}`);
+    }
   }
 }
 
