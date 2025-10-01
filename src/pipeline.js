@@ -305,8 +305,9 @@ function formatStepName(step) {
     .replace(/\b\w/g, l => l.toUpperCase());
 }
 
+
 module.exports = { 
   runPipeline, 
   getCurrentPipelineStatus,
-  checkAndUpdateCompletion: updatePipelineResults
+  updatePipelineResults
 };
