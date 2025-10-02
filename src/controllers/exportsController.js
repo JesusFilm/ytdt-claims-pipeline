@@ -5,6 +5,39 @@ const { format } = require('date-fns');
 const { getDatabase } = require('../database');
 
 
+// Download uploaded files
+async function downloadUpload(req, res) {
+  try {
+    const filename = req.params.filename;
+
+    // Security: prevent path traversal
+    if (filename.includes('..') || filename.includes('/')) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+
+    const filePath = path.join(process.cwd(), 'data', 'uploads', filename);
+
+    res.download(filePath, (err) => {
+      if (err) {
+        console.error('Upload download error:', err);
+        if (!res.headersSent) {
+          if (err.code === 'ENOENT') {
+            res.status(404).json({ error: 'File not found' });
+          } else {
+            res.status(500).json({ error: 'Download failed' });
+          }
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Upload download error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+}
+
 // Download exported files
 async function downloadExport(req, res) {
   try {
@@ -89,6 +122,7 @@ async function listExports(req, res) {
 }
 
 module.exports = {
+  downloadUpload,
   downloadExport,
   listExports
 };

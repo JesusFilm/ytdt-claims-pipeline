@@ -10,7 +10,8 @@ function createApiRoutes(pipelineStatus) {
   router.get('/runs/history', historyController.getHistory);
   router.get('/runs/:id/retry', historyController.retryRun);
 
-  // Export routes  
+  // Download routes  
+  router.get('/uploads/:filename', exportsController.downloadUpload);
   router.get('/exports/run/:runId', exportsController.listExports);
   router.get('/exports/run/:runId/:filename', exportsController.downloadExport);
 
