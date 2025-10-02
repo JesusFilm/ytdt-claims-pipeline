@@ -39,7 +39,6 @@ async function runPipeline(files, options = {}) {
     const collection = db.collection('pipeline_runs');
 
     const initialRun = {
-      timestamp: new Date(),
       status: 'running',
       currentStep: 'starting',
       startedSteps: [],
@@ -197,7 +196,7 @@ async function getCurrentPipelineStatus() {
     const currentRun = await collection
       .findOne(
         { status: 'running' },
-        { sort: { timestamp: -1 } }
+        { sort: { startTime: -1 } }
       );
 
     if (!currentRun) {

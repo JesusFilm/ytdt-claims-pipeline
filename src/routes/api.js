@@ -11,8 +11,8 @@ function createApiRoutes(pipelineStatus) {
   router.get('/runs/:id/retry', historyController.retryRun);
 
   // Export routes  
-  router.get('/exports', exportsController.listExports);
-  router.get('/exports/:filename', exportsController.downloadExport);
+  router.get('/exports/run/:runId', exportsController.listExports);
+  router.get('/exports/run/:runId/:filename', exportsController.downloadExport);
 
   // Mount ML webhook route for YT-Validator callback
   router.post('/ml-webhook', statusController.handleMLWebhook);

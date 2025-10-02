@@ -33,7 +33,7 @@ async function connectToDatabase() {
 async function createIndexes() {
   try {
     // Index for pipeline runs
-    await db.collection('pipeline_runs').createIndex({ timestamp: -1 });
+    await db.collection('pipeline_runs').createIndex({ startTime: -1 });
     await db.collection('pipeline_runs').createIndex({ status: 1 });
     
     console.log('Database indexes created');

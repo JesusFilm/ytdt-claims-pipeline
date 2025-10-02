@@ -1,9 +1,15 @@
 const path = require('path');
 const fs = require('fs').promises;
+const { ObjectId } = require('mongodb');
+const { format } = require('date-fns');
+const { getDatabase } = require('../database');
+
 
 // Download exported files
-function downloadExport(req, res) {
+async function downloadExport(req, res) {
   try {
+
+    const runId = req.params.runId;
     const filename = req.params.filename;
 
     // Security: only allow .csv files and prevent path traversal
@@ -11,7 +17,14 @@ function downloadExport(req, res) {
       return res.status(400).json({ error: 'Invalid filename' });
     }
 
-    const filePath = path.join(process.cwd(), 'data', 'exports', filename);
+    // Get run from database
+    const db = getDatabase();
+    const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
+    if (!run) { return res.status(404).json({ error: 'Run not found' }); }    
+
+    // Build folder name and file path
+    const folderName = format(new Date(run.startTime), 'yyyyMMddHHmmss');
+    const filePath = path.join(process.cwd(), 'data', 'exports', folderName, filename);
 
     res.download(filePath, (err) => {
       if (err) {
@@ -37,7 +50,17 @@ function downloadExport(req, res) {
 // List available export files
 async function listExports(req, res) {
   try {
-    const exportsDir = path.join(process.cwd(), 'data', 'exports');
+
+    const runId = req.params.runId;
+
+    // Get run from database
+    const db = getDatabase();
+    const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
+    if (!run) { return res.status(404).json({ error: 'Run not found' }); }
+
+    // Build folder name from run startTime
+    const folderName = format(new Date(run.startTime), 'yyyyMMddHHmmss');
+    const exportsDir = path.join(process.cwd(), 'data', 'exports', folderName);
 
     const files = await fs.readdir(exportsDir);
     const csvFiles = files

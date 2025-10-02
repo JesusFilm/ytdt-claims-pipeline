@@ -8,17 +8,17 @@ async function getHistory(req, res) {
     const db = getDatabase();
     const collection = db.collection('pipeline_runs');
     
-    // Get runs sorted by timestamp descending, limit to 50
+    // Get runs sorted by startTime descending, limit to 50
     const runs = await collection
       .find({})
-      .sort({ timestamp: -1 })
+      .sort({ startTime: -1 })
       .limit(50)
       .toArray();
     
     // Convert MongoDB _id to id and format for frontend
     const formattedRuns = runs.map(run => ({
       id: run._id.toString(),
-      timestamp: run.timestamp,
+      startTime: run.startTime,
       status: run.status,
       duration: run.duration,
       files: run.files || {},
