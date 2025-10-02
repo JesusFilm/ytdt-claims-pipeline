@@ -9,6 +9,8 @@ const uploadDrive = require('./steps/upload-drive');
 const { getDatabase } = require('./database');
 
 
+const timeoutMinutes = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
+
 // Main pipeline runner
 async function runPipeline(files, options = {}) {
   const context = {
@@ -209,6 +211,12 @@ async function getCurrentPipelineStatus() {
       };
     }
 
+    // Check and handle timeout
+    if (checkTimeout(currentRun)) {
+      await handleTimeout(currentRun._id, collection, currentRun.startTime);
+      return { running: false, status: 'timeout', currentStep: null, progress: 0, steps: [] };
+    }
+
     const allSteps = [
       'connect_vpn', 'backup_tables', 'process_claims',
       'process_mcn_verdicts', 'process_jfm_verdicts',
@@ -267,20 +275,20 @@ async function getCurrentPipelineStatus() {
 
 // Sync pipeline results to the db and mark as completed if no running steps
 async function updatePipelineResults(runId, completionData = {}) {
-  
+
   const db = getDatabase();
   const run = await db.collection('pipeline_runs').findOne({ _id: runId });
   const updateFields = {};
-  
+
   // Add optional completion data if provided
   if (completionData.results) {
     const existingResults = run.results || {};
     updateFields.results = { ...existingResults, ...completionData.results };
   }
-  
+
   // Check if pipeline can be marked complete
   const hasRunningSteps = run?.startedSteps?.some(step => step.status === 'running');
-  
+
   if (!hasRunningSteps && run.status === 'running') {
     updateFields.status = 'completed';
     updateFields.currentStep = 'completed';
@@ -288,7 +296,7 @@ async function updatePipelineResults(runId, completionData = {}) {
     if (completionData.duration) updateFields.duration = completionData.duration;
     console.log('Pipeline marked as completed');
   }
-  
+
   // Update DB if we have any fields to set (don't wait for completion)
   if (Object.keys(updateFields).length > 0) {
     await db.collection('pipeline_runs').updateOne(
@@ -298,6 +306,30 @@ async function updatePipelineResults(runId, completionData = {}) {
   }
 }
 
+// Check if a running pipeline has exceeded the timeout limit
+function checkTimeout(run) {
+  const timeoutMs = timeoutMinutes * 60 * 1000;
+  const elapsed = Date.now() - new Date(run.startTime).getTime();
+
+  return elapsed > timeoutMs;
+}
+
+// Mark a pipeline run as timed out
+async function handleTimeout(runId, collection, startTime) {
+  await collection.updateOne(
+    { _id: runId },
+    {
+      $set: {
+        status: 'timeout',
+        error: `Pipeline timed out after ${timeoutMinutes} minutes`,
+        endTime: new Date(),
+        duration: Date.now() - new Date(startTime).getTime()
+      }
+    }
+  );
+  console.log(`Pipeline ${runId} timed out`);
+}
+
 function formatStepName(step) {
   return step
     .replace(/_/g, ' ')
@@ -305,8 +337,9 @@ function formatStepName(step) {
 }
 
 
-module.exports = { 
-  runPipeline, 
+module.exports = {
+  runPipeline,
   getCurrentPipelineStatus,
-  updatePipelineResults
+  updatePipelineResults,
+  checkTimeout, handleTimeout
 };

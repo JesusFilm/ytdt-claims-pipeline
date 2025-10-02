@@ -63,7 +63,8 @@ eg. `.vscode/launch.json`for debugging:
             "envFile": "${workspaceFolder}/.env",
             "env": {
                 "NODE_ENV": "development",
-                "GOOGLE_DRIVE_NAME": "youtube_exports"
+                "GOOGLE_DRIVE_NAME": "youtube_exports",
+                "PIPELINE_TIMEOUT_MINUTES": "20"
             },
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
