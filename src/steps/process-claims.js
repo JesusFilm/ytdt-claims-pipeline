@@ -52,17 +52,7 @@ function parseCSV(filePath) {
     const rows = [];
     fs.createReadStream(filePath)
       .pipe(csv.parse({ columns: true, skip_empty_lines: true }))
-      .on('data', (row) => {
-
-        // Normalize column names
-        if (row['REPLACE(channel_display_name, ",", " ")']) {
-          row.channel_display_name = row['REPLACE(channel_display_name, ",", " ")'];
-        }
-        if (row['REPLACE(video_title, ",", " ")']) {
-          row.video_title = row['REPLACE(video_title, ",", " ")'];
-        }
-        rows.push(cleanRow(row));
-      })
+      .on('data', (row) => { rows.push(cleanRow(row)) })
       .on('end', () => resolve(rows))
       .on('error', reject);
   });

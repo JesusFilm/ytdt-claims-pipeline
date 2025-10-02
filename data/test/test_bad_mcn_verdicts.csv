@@ -1,0 +1,3 @@
+video_id,verdict,nonsense_col,wave,fictional_field,media_component_id
+ghi789,Y,bad_value,1,fake_info,MC001
+jkl012,N,wrong_data,2,invalid_col,MC002

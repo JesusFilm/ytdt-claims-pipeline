@@ -1,5 +1,6 @@
 const connectVPN = require('./steps/connect-vpn');
 const disconnectVPN = require('./steps/disconnect-vpn');
+const validateInputCSVs = require('./steps/validate-input-csvs');
 const backupTables = require('./steps/backup-tables');
 const processClaims = require('./steps/process-claims');
 const processVerdicts = require('./steps/process-verdicts');
@@ -24,6 +25,7 @@ async function runPipeline(files, options = {}) {
 
   const steps = [
     { name: 'connect_vpn', fn: connectVPN },
+    { name: 'validate_input_csvs', fn: validateInputCSVs },
     { name: 'backup_tables', fn: backupTables },
     { name: 'process_claims', fn: processClaims, condition: () => !!files.claims },
     { name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts },

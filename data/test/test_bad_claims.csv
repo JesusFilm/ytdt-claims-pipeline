@@ -1,0 +1,3 @@
+claim_id,video_id,fake_column,channel_id,invalid_field,asset_labels
+TEST001,abc123,bad_data,UCtest123,wrong_value,"Jesus Film Project"
+TEST002,def456,more_bad,UCtest456,another_wrong,"Jesus Film"
