@@ -11,17 +11,55 @@ const { getDatabase } = require('./database');
 
 
 const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
-const PIPELINE_STEPS = [
-  { name: 'connect_vpn', fn: connectVPN },
-  { name: 'validate_input_csvs', fn: validateInputCSVs },
-  { name: 'backup_tables', fn: backupTables },
-  { name: 'process_claims', fn: processClaims, condition: () => !!files.claims },
-  { name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts },
-  { name: 'process_jfm_verdicts', fn: processVerdicts, condition: () => !!files.jfmVerdicts },
-  { name: 'export_views', fn: exportViews },
-  { name: 'enrich_ml', fn: enrichML, condition: () => process.env.GOOGLE_DRIVE_NAME },
-  { name: 'upload_drive', fn: uploadDrive }
-];
+function getPipelineSteps(files) {
+  return [
+    {
+      name: 'connect_vpn', fn: connectVPN,
+      title: 'Connect VPN',
+      description: 'Establishes secure VPN connection to access remote database and services'
+    },
+    {
+      name: 'validate_input_csvs', fn: validateInputCSVs,
+      title: 'Validate Input CSVs',
+      description: 'Validates uploaded CSV files for required columns and data integrity'
+    },
+    {
+      name: 'backup_tables', fn: backupTables,
+      title: 'Backup Tables',
+      description: 'Creates backup copies of database tables before processing'
+    },
+    {
+      name: 'process_claims', fn: processClaims, condition: () => !!files.claims,
+      title: 'Process Claims',
+      description: 'Imports and processes new MCN claims from uploaded CSV files'
+    },
+    {
+      name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts,
+      title: 'Process MCN Verdicts',
+      description: 'Imports MCN verdict decisions and updates claim records accordingly'
+    },
+    {
+      name: 'process_jfm_verdicts', fn: processVerdicts, condition: () => !!files.jfmVerdicts,
+      title: 'Process JFM Verdicts',
+      description: 'Imports JFM verdict decisions and updates video ownership records'
+    },
+    {
+      name: 'export_views', fn: exportViews,
+      title: 'Export Views',
+      description: 'Generates CSV exports of processed claims, owned videos, and unprocessed data'
+    },
+    {
+      name: 'enrich_ml', fn: enrichML, condition: () => process.env.GOOGLE_DRIVE_NAME,
+      title: 'Enrich ML',
+      description: 'Sends unprocessed claims to ML service for verdict probability predictions'
+    },
+    {
+      name: 'upload_drive', fn: uploadDrive,
+      title: 'Upload Drive',
+      description: 'Uploads generated exports and ML results to Google Drive for review'
+    }
+  ];
+}
 
 // Main pipeline runner
 async function runPipeline(files, options = {}) {
@@ -54,7 +92,8 @@ async function runPipeline(files, options = {}) {
     context.runId = runId.toString();
     console.log(`Pipeline run started with ID: ${runId}`);
 
-    for (const step of PIPELINE_STEPS) {
+    const steps = getPipelineSteps(files);
+    for (const step of steps) {
 
       // Skip if marked to skip
       if (step.skip) {
@@ -71,7 +110,15 @@ async function runPipeline(files, options = {}) {
           { _id: runId },
           {
             $set: { currentStep: step.name },
-            $push: { startedSteps: { name: step.name, status: 'skipped', timestamp: new Date() } }
+            $push: {
+              startedSteps: {
+                name: step.name,
+                title: step.title,
+                description: step.description,
+                status: 'skipped',
+                timestamp: new Date()
+              }
+            }
           }
         );
         continue;
@@ -102,6 +149,8 @@ async function runPipeline(files, options = {}) {
             $push: {
               startedSteps: {
                 name: step.name,
+                title: step.title,
+                description: step.description,
                 status,
                 timestamp: new Date(),
                 duration: stepDuration,
@@ -127,6 +176,8 @@ async function runPipeline(files, options = {}) {
             $push: {
               startedSteps: {
                 name: step.name,
+                title: step.title,
+                description: step.description,
                 status: 'error',
                 timestamp: new Date(),
                 error: stepError.message
@@ -218,7 +269,7 @@ async function getCurrentPipelineStatus() {
       return { running: false, status: 'timeout', currentStep: null, progress: 0, steps: [] };
     }
 
-    const allSteps = PIPELINE_STEPS.map(s => s.name);
+    const allSteps = getPipelineSteps({}).map(s => s.name);
     const completedCount = currentRun.startedSteps?.filter(s => s.status === 'completed').length || 0;
     const progress = Math.round((completedCount / allSteps.length) * 100);
 
@@ -326,12 +377,15 @@ async function handleTimeout(runId, collection, startTime) {
   console.log(`Pipeline ${runId} timed out`);
 }
 
-function formatStepName(step) {
-  return step
+function formatStepName(stepName) {
+  const step = getPipelineSteps({}).find(s => s.name === stepName);
+  if (step && step.title) {
+    return step.title;
+  }
+  return stepName
     .replace(/_/g, ' ')
     .replace(/\b\w/g, l => l.toUpperCase());
 }
-
 
 module.exports = {
   runPipeline,
