@@ -10,7 +10,18 @@ const uploadDrive = require('./steps/upload-drive');
 const { getDatabase } = require('./database');
 
 
-const timeoutMinutes = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
+const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
+const PIPELINE_STEPS = [
+  { name: 'connect_vpn', fn: connectVPN },
+  { name: 'validate_input_csvs', fn: validateInputCSVs },
+  { name: 'backup_tables', fn: backupTables },
+  { name: 'process_claims', fn: processClaims, condition: () => !!files.claims },
+  { name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts },
+  { name: 'process_jfm_verdicts', fn: processVerdicts, condition: () => !!files.jfmVerdicts },
+  { name: 'export_views', fn: exportViews },
+  { name: 'enrich_ml', fn: enrichML, condition: () => process.env.GOOGLE_DRIVE_NAME },
+  { name: 'upload_drive', fn: uploadDrive }
+];
 
 // Main pipeline runner
 async function runPipeline(files, options = {}) {
@@ -22,18 +33,6 @@ async function runPipeline(files, options = {}) {
     status: 'starting',
     startTime: Date.now()
   };
-
-  const steps = [
-    { name: 'connect_vpn', fn: connectVPN },
-    { name: 'validate_input_csvs', fn: validateInputCSVs },
-    { name: 'backup_tables', fn: backupTables },
-    { name: 'process_claims', fn: processClaims, condition: () => !!files.claims },
-    { name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts },
-    { name: 'process_jfm_verdicts', fn: processVerdicts, condition: () => !!files.jfmVerdicts },
-    { name: 'export_views', fn: exportViews },
-    { name: 'enrich_ml', fn: enrichML, condition: () => process.env.GOOGLE_DRIVE_NAME },
-    { name: 'upload_drive', fn: uploadDrive }
-  ];
 
   let runId = null;
 
@@ -55,7 +54,7 @@ async function runPipeline(files, options = {}) {
     context.runId = runId.toString();
     console.log(`Pipeline run started with ID: ${runId}`);
 
-    for (const step of steps) {
+    for (const step of PIPELINE_STEPS) {
 
       // Skip if marked to skip
       if (step.skip) {
@@ -219,12 +218,7 @@ async function getCurrentPipelineStatus() {
       return { running: false, status: 'timeout', currentStep: null, progress: 0, steps: [] };
     }
 
-    const allSteps = [
-      'connect_vpn', 'backup_tables', 'process_claims',
-      'process_mcn_verdicts', 'process_jfm_verdicts',
-      'export_views', 'enrich_ml', 'upload_drive'
-    ];
-
+    const allSteps = PIPELINE_STEPS.map(s => s.name);
     const completedCount = currentRun.startedSteps?.filter(s => s.status === 'completed').length || 0;
     const progress = Math.round((completedCount / allSteps.length) * 100);
 
@@ -310,7 +304,7 @@ async function updatePipelineResults(runId, completionData = {}) {
 
 // Check if a running pipeline has exceeded the timeout limit
 function checkTimeout(run) {
-  const timeoutMs = timeoutMinutes * 60 * 1000;
+  const timeoutMs = PIPELINE_TIMEOUT_MINUTES * 60 * 1000;
   const elapsed = Date.now() - new Date(run.startTime).getTime();
 
   return elapsed > timeoutMs;
@@ -323,7 +317,7 @@ async function handleTimeout(runId, collection, startTime) {
     {
       $set: {
         status: 'timeout',
-        error: `Pipeline timed out after ${timeoutMinutes} minutes`,
+        error: `Pipeline timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`,
         endTime: new Date(),
         duration: Date.now() - new Date(startTime).getTime()
       }

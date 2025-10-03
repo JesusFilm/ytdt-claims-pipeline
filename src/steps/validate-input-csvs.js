@@ -84,7 +84,7 @@ async function validateInputCSVs(context) {
   }
 
   console.log('✓ All CSV files validated successfully');
-  return { validated: true };
+  return { status: 'completed' };
 }
 
 module.exports = validateInputCSVs;
