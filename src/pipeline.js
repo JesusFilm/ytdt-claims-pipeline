@@ -276,10 +276,16 @@ async function getCurrentPipelineStatus() {
     const steps = allSteps.map(stepName => {
       const completed = currentRun.startedSteps?.find(s => s.name === stepName);
 
+      const baseStep = {
+        id: stepName,
+        name: formatStepName(stepName),
+        title: completed?.title || formatStepName(stepName),
+        description: completed?.description || ''
+      };
+
       if (completed) {
         return {
-          id: stepName,
-          name: formatStepName(stepName),
+          ...baseStep,
           status: completed.status,
           timestamp: completed.timestamp,
           duration: completed.duration,
@@ -287,14 +293,12 @@ async function getCurrentPipelineStatus() {
         };
       } else if (currentRun.currentStep === stepName) {
         return {
-          id: stepName,
-          name: formatStepName(stepName),
+          ...baseStep,
           status: 'running'
         };
       } else {
         return {
-          id: stepName,
-          name: formatStepName(stepName),
+          ...baseStep,
           status: 'pending'
         };
       }
