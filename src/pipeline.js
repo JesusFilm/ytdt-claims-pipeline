@@ -324,7 +324,7 @@ async function getCurrentPipelineStatus() {
   }
 }
 
-// Sync pipeline results to the db and mark as completed if no running steps
+// Synchronizes pipeline results and updates currentStep to reflect actual running state.
 async function updatePipelineResults(runId, completionData = {}) {
 
   const db = getDatabase();
@@ -346,7 +346,13 @@ async function updatePipelineResults(runId, completionData = {}) {
     updateFields.endTime = new Date();
     if (completionData.duration) updateFields.duration = completionData.duration;
     console.log('Pipeline marked as completed');
+
+  // Update currentStep to the running step
+  } else if (hasRunningSteps) {
+    const runningStep = run.startedSteps.find(step => step.status === 'running');
+    updateFields.currentStep = runningStep.name;
   }
+
 
   // Update DB if we have any fields to set (don't wait for completion)
   if (Object.keys(updateFields).length > 0) {

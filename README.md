@@ -64,7 +64,7 @@ eg. `.vscode/launch.json`for debugging:
             "env": {
                 "NODE_ENV": "development",
                 "GOOGLE_DRIVE_NAME": "youtube_exports",
-                "PIPELINE_TIMEOUT_MINUTES": "20"
+                "PIPELINE_TIMEOUT_MINUTES": "30"
             },
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
