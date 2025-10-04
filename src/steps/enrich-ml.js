@@ -29,7 +29,7 @@ async function enrichML(context) {
     formData.append('skip_validation', String(true));
 
     // Configure axios with 30s timeout and retry logic
-    const response = await axios.post(process.env.ML_API_ENDPOINT, formData, {
+    const response = await axios.post(`${process.env.ML_API_ENDPOINT}/predict`, formData, {
       headers: formData.getHeaders(),
       timeout: 30000,
       validateStatus: (status) => status >= 200 && status < 300,

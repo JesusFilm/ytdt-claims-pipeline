@@ -1,7 +1,7 @@
 const { format } = require('date-fns');
 const axios = require('axios');
 const path = require('path');
-const fs = require('fs'); 
+const fs = require('fs');
 
 const { getOrCreateFolder, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, updatePipelineResults } = require('../pipeline');
@@ -29,18 +29,39 @@ function getStatus(pipelineStatus) {
   };
 }
 
-// System health check
+// System health check - both this backend and ML service
 function getHealth(req, res) {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: Math.round(process.uptime()),
-    memory: {
-      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
-    },
-    version: process.env.npm_package_version || '1.0.0'
-  });
+  
+  const healthCheck = async () => {
+    const health = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: Math.round(process.uptime()),
+      memory: {
+        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
+      },
+      version: process.env.npm_package_version || '1.0.0'
+    };
+
+    // Check ML service
+    try {
+      const response = await axios.get(`${process.env.ML_API_ENDPOINT}/health`, { timeout: 5000 });
+      health.enrich_ml_status = 'healthy';
+    } catch (error) {
+      health.enrich_ml_status = 'unhealthy';
+      health.status = 'degraded';
+    }
+
+    return health;
+  };
+
+  healthCheck()
+    .then(health => res.json(health))
+    .catch(error => {
+      console.error('Health check failed:', error);
+      res.status(500).json({ status: 'error', uptime: 0, memory: { used: 0, total: 0 } });
+    });
 }
 
 // Save completion result from ML service 
@@ -50,7 +71,7 @@ async function handleMLWebhook(req, res) {
 
     const { task_id, status, error, csv_path, num_results, pipeline_run_id } = req.body;
     console.log(`ML webhook received: '${status}' for task ${task_id}, pipeline_run_id: ${pipeline_run_id}`);
-    
+
     const db = getDatabase();
 
     // Find enrich_ml step to calculate duration
@@ -88,12 +109,13 @@ async function handleMLWebhook(req, res) {
     // Set ML result and mark enrich_ml step as completed
     await db.collection('pipeline_runs').updateOne(
       { _id: new ObjectId(pipeline_run_id) },
-      { $set: { 
+      {
+        $set: {
           'results.mlEnrichment': {
             task_id,
             status,
             error,
-            path: csv_path, 
+            path: csv_path,
             rows: num_results,
             name: fileName,
             driveUpload,
@@ -101,11 +123,11 @@ async function handleMLWebhook(req, res) {
           },
           'startedSteps.$[elem].status': 'completed',
           'startedSteps.$[elem].duration': duration
-        } 
+        }
       },
       { arrayFilters: [{ 'elem.name': 'enrich_ml' }] }
     );
-    
+
     await updatePipelineResults(new ObjectId(pipeline_run_id));
     res.json({ received: true, pipeline_run_id });
 
