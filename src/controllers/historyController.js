@@ -7,14 +7,14 @@ async function getHistory(req, res) {
   try {
     const db = getDatabase();
     const collection = db.collection('pipeline_runs');
-    
+
     // Get runs sorted by startTime descending, limit to 50
     const runs = await collection
       .find({})
       .sort({ startTime: -1 })
       .limit(50)
       .toArray();
-    
+
     // Convert MongoDB _id to id and format for frontend
     const formattedRuns = runs.map(run => ({
       id: run._id.toString(),
@@ -26,12 +26,12 @@ async function getHistory(req, res) {
       startedSteps: run.startedSteps || [],
       error: run.error,
     }));
-    
+
     // Calculate stats
     const total = runs.length;
     const successful = runs.filter(r => r.status === 'completed').length;
     const failed = runs.filter(r => r.status === 'failed').length;
-    const avgDuration = runs.length > 0 
+    const avgDuration = runs.length > 0
       ? Math.round(runs.reduce((sum, run) => sum + (run.duration || 0), 0) / runs.length)
       : 0;
 
@@ -39,7 +39,7 @@ async function getHistory(req, res) {
       runs: formattedRuns,
       stats: { total, successful, failed, avgDuration }
     });
-    
+
   } catch (error) {
     console.error('History fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch history' });
@@ -51,25 +51,56 @@ async function retryRun(req, res) {
   try {
     const db = getDatabase();
     const collection = db.collection('pipeline_runs');
-    
+
     const runId = req.params.id;
     const originalRun = await collection.findOne({ _id: new ObjectId(runId) });
-    
+
     if (!originalRun) {
       return res.status(404).json({ error: 'Run not found' });
     }
-    
-    // Return the original files for re-processing
-    res.json({ 
-      message: 'Retry data retrieved',
-      files: originalRun.files 
+
+    if (originalRun.status !== 'failed' && originalRun.status !== 'timeout') {
+      return res.status(400).json({
+        error: 'Can only retry failed or timed out runs'
+      });
+    }
+
+    // Reset the run state
+    await collection.updateOne(
+      { _id: new ObjectId(runId) },
+      {
+        $set: {
+          status: 'running',
+          currentStep: 'starting',
+          startedSteps: [],
+          error: null,
+          endTime: null,
+          startTime: new Date()
+        }
+      }
+    );
+
+    // Start pipeline with existing ID
+    const { runPipeline } = require('../pipeline');
+
+    setImmediate(() => {
+      runPipeline(originalRun.files, {}, runId)
+        .catch(error => {
+          console.error('Retry pipeline error:', error);
+        });
     });
-    
+
+    res.json({
+      message: 'Pipeline retry started',
+      runId: runId
+    });
+
   } catch (error) {
     console.error('Retry error:', error);
     res.status(500).json({ error: 'Retry failed' });
   }
 }
+
 
 module.exports = {
   getHistory,

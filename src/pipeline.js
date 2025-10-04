@@ -7,7 +7,9 @@ const processVerdicts = require('./steps/process-verdicts');
 const exportViews = require('./steps/export-views');
 const enrichML = require('./steps/enrich-ml');
 const uploadDrive = require('./steps/upload-drive');
+
 const { getDatabase } = require('./database');
+const { ObjectId } = require('mongodb');
 
 
 const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
@@ -62,7 +64,7 @@ function getPipelineSteps(files) {
 }
 
 // Main pipeline runner
-async function runPipeline(files, options = {}) {
+async function runPipeline(files, options = {}, existingRunId = null) {
   const context = {
     files,
     options,
@@ -75,22 +77,31 @@ async function runPipeline(files, options = {}) {
   let runId = null;
 
   try {
+
     // Create initial run record
     const db = getDatabase();
     const collection = db.collection('pipeline_runs');
 
-    const initialRun = {
-      status: 'running',
-      currentStep: 'starting',
-      startedSteps: [],
-      files: files,
-      startTime: new Date()
-    };
+    if (existingRunId) {
+      runId = new ObjectId(existingRunId);
+      context.runId = runId.toString();
+      console.log(`Pipeline retry started with existing ID: ${runId}`);
+      
+    } else {
 
-    const result = await collection.insertOne(initialRun);
-    runId = result.insertedId;
-    context.runId = runId.toString();
-    console.log(`Pipeline run started with ID: ${runId}`);
+      // Create initial run record
+      const initialRun = {
+        status: 'running',
+        currentStep: 'starting',
+        startedSteps: [],
+        files: files,
+        startTime: new Date()
+      };
+      const result = await collection.insertOne(initialRun);
+      runId = result.insertedId;
+      context.runId = runId.toString();
+      console.log(`Pipeline run started with ID: ${runId}`);
+    }
 
     const steps = getPipelineSteps(files);
     for (const step of steps) {
@@ -347,7 +358,7 @@ async function updatePipelineResults(runId, completionData = {}) {
     if (completionData.duration) updateFields.duration = completionData.duration;
     console.log('Pipeline marked as completed');
 
-  // Update currentStep to the running step
+    // Update currentStep to the running step
   } else if (hasRunningSteps) {
     const runningStep = run.startedSteps.find(step => step.status === 'running');
     updateFields.currentStep = runningStep.name;
