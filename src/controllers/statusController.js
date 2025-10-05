@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 const { getOrCreateFolder, uploadFile } = require('../lib/driveUpload');
-const { getCurrentPipelineStatus, updatePipelineResults } = require('../pipeline');
+const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
 const { ObjectId } = require('mongodb');
 
@@ -128,7 +128,7 @@ async function handleMLWebhook(req, res) {
       { arrayFilters: [{ 'elem.name': 'enrich_ml' }] }
     );
 
-    await updatePipelineResults(new ObjectId(pipeline_run_id));
+    await syncRunState(new ObjectId(pipeline_run_id));
     res.json({ received: true, pipeline_run_id });
 
   } catch (error) {
