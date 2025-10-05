@@ -65,6 +65,7 @@ eg. `.vscode/launch.json`for debugging:
                 "NODE_ENV": "development",
                 "GOOGLE_DRIVE_NAME": "youtube_exports",
                 "PIPELINE_TIMEOUT_MINUTES": "30"
+                // Etc., check src/.env.example
             },
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
@@ -222,4 +223,16 @@ sudo systemctl status ytdt-claims-pipeline.service
 # Check detailed logs
 sudo journalctl -u ytdt-claims-pipeline.service -f
 
+```
+
+## Integrations
+
+### [Slack Notification Bot](./docs/slack-integration.md)
+
+```
+Pipeline Complete → Check Status → Post to #youtube-data-chat
+                                         ↓
+                              [Failed? Add "Rerun" button]
+                                         ↓
+User Clicks "Rerun" → Slack Interaction → Backend Webhook → Trigger New Pipeline Run
 ```

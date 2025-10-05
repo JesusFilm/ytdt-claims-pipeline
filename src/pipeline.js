@@ -398,6 +398,32 @@ async function syncRunState(runId, completionData = {}) {
       { $set: updateFields }
     );
   }
+
+  // Send Slack notification if run reached terminal state and not already notified
+  if (process.env.SLACK_BOT_TOKEN && !run.slackNotified) {
+    const finalStatus = updateFields.status || run.status;
+    if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'timeout') {
+      try {
+        const { sendPipelineNotification } = require('./lib/slackNotifier');
+        await sendPipelineNotification(
+          runId.toString(),
+          finalStatus,
+          updateFields.error || run.error,
+          updateFields.duration || run.duration,
+          run.files,
+          run.startTime
+        );
+
+        // Mark as notified to prevent duplicates
+        await db.collection('pipeline_runs').updateOne(
+          { _id: runId },
+          { $set: { slackNotified: true } }
+        );
+      } catch (notifError) {
+        console.error('Slack notification failed:', notifError.message);
+      }
+    }
+  }
 }
 
 // Check if a running pipeline has exceeded the timeout limit
