@@ -159,7 +159,6 @@ async function runPipeline(files, options = {}, existingRunId = null) {
 
         // Run and extract step completion status
         const result = await step.fn(context);
-        console.log('Step result:', step.name, step.status, result);
         const status = Object.keys(result || {}).length ? result.status : 'completed'
 
         // Update DB - step completed
@@ -381,7 +380,7 @@ async function syncRunState(runId, completionData = {}) {
       updateFields.status = 'completed';
       updateFields.currentStep = 'completed';
       updateFields.endTime = new Date();
-      if (completionData.duration) updateFields.duration = completionData.duration;
+      updateFields.duration = completionData.duration || (Date.now() - new Date(run.startTime).getTime());
       console.log('Pipeline marked as completed');
 
       // Update currentStep to the running step
