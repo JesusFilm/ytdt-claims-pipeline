@@ -1,8 +1,8 @@
 const path = require('path');
 const fs = require('fs').promises;
 const { ObjectId } = require('mongodb');
-const { format } = require('date-fns');
 const { getDatabase } = require('../database');
+const { generateRunFolderName } = require('../lib/utils');
 
 
 // Download uploaded files
@@ -56,7 +56,7 @@ async function downloadExport(req, res) {
     if (!run) { return res.status(404).json({ error: 'Run not found' }); }    
 
     // Build folder name and file path
-    const folderName = format(new Date(run.startTime), 'yyyyMMddHHmmss');
+    const folderName = generateRunFolderName(run.startTime);
     const filePath = path.join(process.cwd(), 'data', 'exports', folderName, filename);
 
     res.download(filePath, (err) => {
@@ -92,7 +92,7 @@ async function listExports(req, res) {
     if (!run) { return res.status(404).json({ error: 'Run not found' }); }
 
     // Build folder name from run startTime
-    const folderName = format(new Date(run.startTime), 'yyyyMMddHHmmss');
+    const folderName = generateRunFolderName(run.startTime);
     const exportsDir = path.join(process.cwd(), 'data', 'exports', folderName);
 
     const files = await fs.readdir(exportsDir);

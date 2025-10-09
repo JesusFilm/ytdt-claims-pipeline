@@ -1,8 +1,8 @@
-const { format } = require('date-fns');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 
+const { generateRunFolderName } = require('../lib/utils');
 const { getOrCreateFolder, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
@@ -78,7 +78,7 @@ async function handleMLWebhook(req, res) {
     const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(pipeline_run_id) });
     const enrichStep = run?.startedSteps?.find(s => s.name === 'enrich_ml');
     const duration = enrichStep?.timestamp ? Date.now() - new Date(enrichStep.timestamp).getTime() : 0;
-    const folderName = format(run.startTime, 'yyyyMMddHHmmss');
+    const folderName = generateRunFolderName(run.startTime);;
     const fileName = `unprocessed_claims_${enrichStep.name}.csv`
 
     // Upload CSV to Drive if successful and Drive is configured

@@ -1,5 +1,5 @@
 const path = require('path');
-const { format } = require('date-fns');
+const { generateRunFolderName } = require('../lib/utils');
 const { getOrCreateFolder, uploadFileWithFallback } = require('../lib/driveUpload');
 
 
@@ -13,8 +13,9 @@ async function uploadDrive(context) {
   try {
 
     // Lookup today's folder in shared drive and get its ID
-    const folderName = format(context.startTime, 'yyyyMMddHHmmss');
+    const folderName = generateRunFolderName(context.startTime);
     const folderId = await getOrCreateFolder(folderName, process.env.GOOGLE_DRIVE_NAME);
+    const folderUrl = `https://drive.google.com/drive/folders/${folderId}`;
 
     // Upload each file
     const uploadedFiles = [];
@@ -25,7 +26,8 @@ async function uploadDrive(context) {
     }
 
     context.outputs.driveUploads = uploadedFiles;
-    console.log(`Uploaded ${uploadedFiles.length} files to: https://drive.google.com/drive/folders/${folderId}`);
+    context.outputs.driveFolderUrl = folderUrl;
+    console.log(`Uploaded ${uploadedFiles.length} files to: ${folderUrl}`);
 
   } catch (error) {
     console.error('Drive upload failed:', error.message);

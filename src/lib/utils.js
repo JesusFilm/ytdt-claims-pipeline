@@ -1,3 +1,4 @@
+const { format } = require('date-fns');
 
 
 module.exports.cleanRow = function (row) {
@@ -12,3 +13,13 @@ module.exports.cleanRow = function (row) {
   });
   return cleaned;
 }
+
+module.exports.formatDuration = (ms) => {
+  if (!ms) return `♾️`;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+};
+
+module.exports.generateRunFolderName = (startTime) => 
+  format(startTime, process.env.EXPORT_FOLDER_NAME_FORMAT || 'yyyyMMddHHmmss');

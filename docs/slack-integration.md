@@ -84,16 +84,16 @@ Trigger a failed pipeline run and verify:
 
 **Delete Bots's own messages:** 
 
-Eg., where `1759627249.686209` is message timestamp,
-and `G010SG5QV9B` is channel ID.
+Extract from bot message url eg. `https://jfp-digital.slack.com/archives/C09KPF83TBJ/p1759959559103239`,
+the message timestamp and channel ID as `1759959559.103239` and  `C09KPF83TBJ` resp.
 
 ```shell
 curl -X POST https://slack.com/api/chat.delete \
   -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
-    "channel": "G010SG5QV9B",
-    "ts": "1759627249.686209"
+    "channel": "C09KPF83TBJ",
+    "ts": "1759959559.103239"
   }'
 ```
 

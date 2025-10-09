@@ -1,6 +1,8 @@
 const axios = require('axios');
+const { formatDuration } = require('./utils');
 
-async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null) {
+
+async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, driveFolderUrl = null) {
   if (!process.env.SLACK_BOT_TOKEN) {
     return;
   }
@@ -9,10 +11,10 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   const isFailure = status === 'failed' || status === 'timeout';
   const emoji = isFailure ? '❌' : '✅';
   const statusText = status === 'timeout' ? 'Timed Out' :
-                     status === 'failed' ? 'Failed' : 'Completed';
+    status === 'failed' ? 'Failed' : 'Completed';
 
   const filesList = Object.keys(files).filter(k => files[k]).join(', ') || 'None';
-  const durationText = duration ? `${Math.round(duration / 1000)}s` : 'N/A';
+  const durationText = formatDuration(duration);
   const startTimeText = startTime ? `\nStarted: ${new Date(startTime).toLocaleString()}` : '';
   let text = `${emoji} Pipeline Run ${statusText}\nRun ID: ${runId}\nDuration: ${durationText}${startTimeText}\nFiles: ${filesList}`;
 
@@ -29,6 +31,24 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
       }
     }
   ];
+
+  // Add Drive link button for successful runs
+  if (status === 'completed' && driveFolderUrl) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: '📁 View in Drive'
+          },
+          url: driveFolderUrl,
+          style: 'primary'
+        }
+      ]
+    });
+  }
 
   if (isFailure) {
     blocks.push({
