@@ -411,7 +411,7 @@ async function syncRunState(runId, completionData = {}) {
           updateFields.duration || run.duration,
           run.files,
           run.startTime,
-          (updateFields.results || run.results)?.driveFolderUrl
+          updateFields.results || run.results
         );
 
         // Mark as notified to prevent duplicates

@@ -1,8 +1,7 @@
 const axios = require('axios');
 const { formatDuration } = require('./utils');
 
-
-async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, driveFolderUrl = null) {
+async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null) {
   if (!process.env.SLACK_BOT_TOKEN) {
     return;
   }
@@ -16,8 +15,13 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   const filesList = Object.keys(files).filter(k => files[k]).join(', ') || 'None';
   const durationText = formatDuration(duration);
   const startTimeText = startTime ? `\nStarted: ${new Date(startTime).toLocaleString()}` : '';
-  let text = `${emoji} Pipeline Run ${statusText}\nRun ID: ${runId}\nDuration: ${durationText}${startTimeText}\nFiles: ${filesList}`;
-
+  const source = files.claimsSource || 'unknown';
+  const driveFolderUrl = results?.driveFolderUrl;
+  const invalidMCIDs = (results?.mcnVerdicts?.invalidMCIDs?.length || 0) + (results?.jfmVerdicts?.invalidMCIDs?.length || 0);
+  const invalidLanguageIDs = (results?.mcnVerdicts?.invalidLanguageIDs?.length || 0) + (results?.jfmVerdicts?.invalidLanguageIDs?.length || 0);
+  const issuesText = (invalidMCIDs || invalidLanguageIDs) ? `\n⚠️ Issues: ${invalidMCIDs} invalid MCIDs, ${invalidLanguageIDs} invalid Language IDs` : '';
+  
+  let text = `${emoji} Pipeline Run ${statusText}\nRun ID: ${runId}\nSource: ${source}\nDuration: ${durationText}${startTimeText}\nFiles: ${filesList}${issuesText}`;
   if (error) {
     text += `\nError: ${error}`;
   }
