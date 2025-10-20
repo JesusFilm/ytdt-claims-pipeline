@@ -5,7 +5,8 @@ const cors = require('cors');
 const { runPipeline } = require('./pipeline');
 const { createApiRoutes } = require('./routes/api');
 const { connectToDatabase, closeConnection } = require('./database');
-const historyController = require('./controllers/historyController');
+const { createAuthRoutes } = require('./routes/auth');
+const { authenticateRequest } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -101,8 +102,9 @@ app.post('/api/run',
     });
   });
 
-// Mount API routes
-app.use('/api', createApiRoutes(pipelineStatus));
+// Mount & Protect API routes
+app.use('/api/auth', createAuthRoutes());
+app.use('/api', authenticateRequest, createApiRoutes(pipelineStatus));
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
