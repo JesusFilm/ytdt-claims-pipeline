@@ -1,6 +1,17 @@
 #cloud-config
 
 write_files:
+- path: /etc/ytdt/.env
+  permissions: 0600
+  content: |
+    NODE_ENV=production
+    PORT=3000
+    MONGODB_URI=${MONGODB_URI}
+    MYSQL_HOST=${MYSQL_HOST}
+    MYSQL_USER=${MYSQL_USER}
+    MYSQL_DATABASE=${MYSQL_DATABASE}
+    SLACK_CHANNEL=${SLACK_CHANNEL}
+
 - path: /etc/systemd/system/ytdt-claims-pipeline.service
   permissions: 0644
   content: |
@@ -11,7 +22,11 @@ write_files:
     
     [Service]
     ExecStartPre=/usr/bin/docker pull ${IMAGE_URL}
-    ExecStart=/usr/bin/docker run --rm --privileged --cap-add=NET_ADMIN -p 80:3000 --name ytdt-claims-pipeline ${IMAGE_URL}
+    ExecStartPre=/bin/bash -c 'mkdir -p /run/secrets/vpn && gcloud secrets versions access latest --secret=vpn-config > /run/secrets/vpn/client.ovpn && chmod 600 /run/secrets/vpn/client.ovpn'
+    ExecStartPre=/bin/bash -c 'echo "MYSQL_PASSWORD=$(gcloud secrets versions access latest --secret=mysql-password)" >> /etc/ytdt/.env'
+    ExecStartPre=/bin/bash -c 'echo "SLACK_BOT_TOKEN=$(gcloud secrets versions access latest --secret=slack-bot-token)" >> /etc/ytdt/.env'
+    ExecStartPre=/bin/bash -c 'echo "SLACK_SIGNING_SECRET=$(gcloud secrets versions access latest --secret=slack-signing-secret)" >> /etc/ytdt/.env'
+    ExecStart=/usr/bin/docker run --rm --privileged --cap-add=NET_ADMIN --cap-add=SYS_ADMIN -p 80:3000 --env-file /etc/ytdt/.env -v /run/secrets/vpn:/config/vpn --name ytdt-claims-pipeline ${IMAGE_URL}
     ExecStop=/usr/bin/docker stop ytdt-claims-pipeline
     Restart=always
     

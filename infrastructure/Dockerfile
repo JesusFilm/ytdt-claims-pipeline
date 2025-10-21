@@ -18,4 +18,4 @@ COPY config/ ./config/
 
 EXPOSE 3000
 
-CMD ["node", "src/api.js"]
+CMD ["node", "src/server.js"]

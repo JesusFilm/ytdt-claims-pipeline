@@ -97,18 +97,6 @@ sudo node scripts/test-pipeline.js
 SKIP_VPN=true sudo node scripts/test-pipeline.js
 ```
 
-### Docker
-
-```shell
-docker run -d \
-  --privileged \
-  --cap-add=NET_ADMIN \
-  --cap-add=SYS_ADMIN \
-  -v /path/to/vpn-config:/config/vpn \
-  -p 3000:3000 \
-  --env-file .env \
-  ytdt-claims-pipeline
-```
 
 ## Production
 
@@ -121,13 +109,27 @@ docker run -d \
 docker build . -f infrastructure/Dockerfile -t ytdt-claims-pipeline:latest
 ```
 
+* Test container locally
+
+```shell
+docker run -d \
+  --privileged \
+  --cap-add=NET_ADMIN \
+  --cap-add=SYS_ADMIN \
+  -v /path/to/vpn-config:/config/vpn \
+  -p 3000:3000 \
+  --env-file .env \
+  ytdt-claims-pipeline
+```
+
 *  Google Artifact Registry 
 
 ```shell
 export \
   PROJECT_ID=jfp-data-warehouse \
-  IMAGE_URL=us-east1-docker.pkg.dev/$PROJECT_ID/$GAR_REPO/ytdt-claims-pipeline:latest \
-  GAR_REPO=ytdt-claims
+  SERVICE_ACCOUNT=ceduth-jfp-dev@jfp-data-warehouse.iam.gserviceaccount.com \
+  GAR_REPO=ytdt-claims \
+  IMAGE_URL=us-east1-docker.pkg.dev/$PROJECT_ID/$GAR_REPO/ytdt-claims-pipeline:latest 
 
 # Configure Docker for Google Artifact Registry (one-time setup)
 gcloud config set project $PROJECT_ID
@@ -157,25 +159,67 @@ gh auth token | docker login ghcr.io -u $GHCR_USER --password-stdin
 docker push ghcr.io/$GHCR_USER/ytdt-claims-pipeline:latest
 ```
 
-### 2. Spawn Compute Engine VM
+### 2. Spawn Compute Engine VM (COS)
 
-* Create COS VM with cloud-config
+**Step 1) Export environment variables from env for cloud-config**
 
 ```shell
+set -a && source .env && set +a
+```
+
+**Step 2) Store secrets in GCP Secret Manager (one-time setup)**
+
+```shell
+
+# Enable Secrets Manager API
+# gcloud services enable secretmanager.googleapis.com
+# Create secrets from .env variables
+echo -n "$MYSQL_PASSWORD" | gcloud secrets create mysql-password --data-file=-
+echo -n "$SLACK_BOT_TOKEN" | gcloud secrets create slack-bot-token --data-file=-
+echo -n "$SLACK_SIGNING_SECRET" | gcloud secrets create slack-signing-secret --data-file=-
+gcloud secrets create vpn-config --data-file="$VPN_CONFIG_FILE"
+```
+
+**Step 3) Create COS VM with cloud-config**
+
+```shell
+
+# Create cloud-config.yaml instance template
 envsubst < infrastructure/gcp/cloud-config.template.yaml > infrastructure/gcp/cloud-config.yaml
 
+# Create the VM (needs re-creation if template edited)
 gcloud compute instances create ytdt-claims-pipeline \
   --image-family=cos-stable \
   --image-project=cos-cloud \
   --metadata-from-file user-data=infrastructure/gcp/cloud-config.yaml \
+  --service-account=$SERVICE_ACCOUNT \
+  --scopes=cloud-platform \
   --zone=us-east1-b \
   --machine-type=e2-medium \
   --boot-disk-size=20GB
+
+# Optionally set SA to existing VM
+# gcloud compute instances set-service-account ytdt-claims-pipeline \
+#   --service-account=ceduth-jfp-dev@jfp-data-warehouse.iam.gserviceaccount.com \
+#   --scopes=https://www.googleapis.com/auth/cloud-platform \
+#   --zone=us-east1-b
+
+# Give the artifact repo read permission for the service account
+gcloud artifacts repositories add-iam-policy-binding ytdt-claims \
+  --location=us-east1 \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/artifactregistry.reader"
 ```
 
 * Test
 
 ```shell
+
+# Get public IP
+gcloud compute instances list --zones=us-east1-b
+gcloud compute instances describe INSTANCE_NAME --zone=us-east1-bRetry
+
+# Test the API is accessible
 curl http://EXTERNAL_IP/api/health
 ```
 
@@ -197,6 +241,8 @@ gcloud compute instances delete ytdt-claims-pipeline
 
 ```shell
 gcloud compute ssh ytdt-claims-pipeline --zone=us-east1-b
+sudo journalctl -u ytdt-claims-pipeline.service -n 50 --no-pager
+
 ```
 
 * After SSH into the VM
