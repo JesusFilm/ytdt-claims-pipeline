@@ -4,14 +4,13 @@ config/
 dist/
 logs/
 
-.env
+.env*
 .DS_Store
 .vscode/
 
 
 data/uploads/
 data/exports/
-infrastructure/gcp/cloud-config.yaml
 
 mirror_key*
 

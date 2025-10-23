@@ -1,5 +1,7 @@
-const { getDatabase } = require('../database');
+const axios = require('axios');
 const { ObjectId } = require('mongodb');
+const { getDatabase } = require('../database');
+const { syncRunState } = require('../pipeline');
 
 
 // Get pipeline run history
@@ -101,8 +103,76 @@ async function retryRun(req, res) {
   }
 }
 
+// Stop a pipeline run
+async function stopRun(req, res) {
+  try {
+    const { id } = req.params;
+    const db = getDatabase();
+
+    const run = await db.collection('pipeline_runs').findOne({
+      _id: new ObjectId(id)
+    });
+
+    if (!run) {
+      return res.status(404).json({ error: 'Run not found' });
+    }
+
+    if (run.status !== 'running') {
+      return res.status(400).json({ error: `Cannot stop ${run.status} pipeline` });
+    }
+
+    // Stop ML enrichment if running
+    const mlTaskId = run.results?.mlEnrichment?.task_id;
+    const mlStep = run.startedSteps?.find(s => s.name === 'enrich_ml');
+    const shouldStopML = mlTaskId && (!mlStep || mlStep.status === 'running');
+    if (shouldStopML && process.env.ML_API_ENDPOINT) {
+      try {
+        console.log(`Stopping ML task ${mlTaskId}`);
+        await axios.post(`${process.env.ML_API_ENDPOINT}/stop/${mlTaskId}`, {}, { timeout: 5000 });
+      } catch (mlError) {
+        console.error('Failed to stop ML task:', mlError.message);
+        // Continue with pipeline stop anyway
+      }
+    }
+
+    // Update run status
+    const stoppedAt = new Date()
+    const stoppedStep = run.startedSteps?.find(s => s.status === 'running');
+    const stoppedStepName = stoppedStep ? stoppedStep.title || stoppedStep.name : 'unknown step';
+    const updateFields = {
+      status: 'stopped',
+      endTime: stoppedAt,
+      duration: Date.now() - new Date(run.startTime).getTime(),
+      error: `Pipeline stopped by user at ${stoppedAt.toLocaleTimeString()} while processing: ${stoppedStepName}`
+    };
+
+    const runningStepIndex = run.startedSteps?.findIndex(s => s.status === 'running');
+    if (runningStepIndex !== -1) {
+      updateFields[`startedSteps.${runningStepIndex}.status`] = 'stopped';
+    }
+
+    await db.collection('pipeline_runs').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+
+
+    await syncRunState(new ObjectId(id));
+
+    res.json({
+      success: true,
+      message: 'Pipeline stopped',
+      mlTaskStopped: !!mlTaskId
+    });
+
+  } catch (error) {
+    console.error('Stop run error:', error);
+    res.status(500).json({ error: 'Failed to stop pipeline' });
+  }
+}
 
 module.exports = {
   getHistory,
-  retryRun
+  retryRun,
+  stopRun
 };

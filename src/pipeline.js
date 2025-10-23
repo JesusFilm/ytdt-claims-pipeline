@@ -115,6 +115,13 @@ async function runPipeline(files, options = {}, existingRunId = null) {
     const steps = getPipelineSteps(files);
     for (const step of steps) {
 
+      // Check if pipeline was stopped
+      const currentRun = await collection.findOne({ _id: runId });
+      if (currentRun.status === 'stopped') {
+        console.log('Pipeline stopped by user');
+        break;
+      }
+
       // Skip if marked to skip
       if (step.skip) {
         console.log(`Skipping ${step.name} - ${options.testMode ? 'test mode' : 'skipped'}`);
@@ -268,7 +275,7 @@ async function getCurrentPipelineStatus() {
     // Find the most recent running pipeline
     const currentRun = await collection
       .findOne(
-        { status: 'running' },
+        {}, // { status: 'running' },
         { sort: { startTime: -1 } }
       );
 
@@ -282,8 +289,9 @@ async function getCurrentPipelineStatus() {
       };
     }
 
-    // Check and handle timeout
-    if (checkTimeout(currentRun)) {
+    // Check and handle timeout (only for running pipelines)
+    const isRunning = currentRun.status === 'running';
+    if (isRunning && checkTimeout(currentRun)) {
       await syncRunState(currentRun._id);
       return { running: false, status: 'timeout', currentStep: null, progress: 0, steps: [] };
     }
@@ -310,7 +318,7 @@ async function getCurrentPipelineStatus() {
           duration: completed.duration,
           error: completed.error
         };
-      } else if (currentRun.currentStep === stepName) {
+      } else if (isRunning && currentRun.currentStep === stepName) {
         return {
           ...baseStep,
           status: 'running'
@@ -324,8 +332,8 @@ async function getCurrentPipelineStatus() {
     });
 
     return {
-      running: true,
-      status: currentRun.currentStep || 'running',
+      running: isRunning,
+      status: currentRun.status,
       currentStep: currentRun.currentStep,
       progress,
       steps,

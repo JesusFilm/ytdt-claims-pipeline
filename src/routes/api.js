@@ -11,14 +11,12 @@ function createApiRoutes(pipelineStatus) {
   // History routes
   router.get('/runs/history', historyController.getHistory);
   router.post('/runs/:id/retry', historyController.retryRun);
+  router.post('/runs/:id/stop', historyController.stopRun);
 
   // Download routes  
   router.get('/uploads/:filename', exportsController.downloadUpload);
   router.get('/exports/run/:runId', exportsController.listExports);
   router.get('/exports/run/:runId/:filename', exportsController.downloadExport);
-
-  // Mount ML webhook route for YT-Validator callback
-  router.post('/ml-webhook', statusController.handleMLWebhook);
 
   // Status routes
   router.get('/status', statusController.getStatus(pipelineStatus));

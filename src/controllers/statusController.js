@@ -87,7 +87,8 @@ async function handleMLWebhook(req, res) {
       try {
 
         // Download CSV file from ML service locally
-        const response = await axios.get(csv_path, { responseType: 'stream' });
+        const fullCsvUrl = `${ML_API_ENDPOINT}${payload.csv_path}`;Retry
+        const response = await axios.get(fullCsvUrl, { responseType: 'stream' });
         const tempPath = path.join(process.cwd(), 'data', 'exports', folderName, fileName);
         const writer = fs.createWriteStream(tempPath);
         response.data.pipe(writer);
@@ -109,13 +110,12 @@ async function handleMLWebhook(req, res) {
     // Set ML result and mark enrich_ml step as completed
     await db.collection('pipeline_runs').updateOne(
       { _id: new ObjectId(pipeline_run_id) },
-      {
-        $set: {
+      { $set: {
           'results.mlEnrichment': {
             task_id,
             status,
             error,
-            path: csv_path,
+            path: fullCsvUrl,
             rows: num_results,
             name: fileName,
             driveUpload,

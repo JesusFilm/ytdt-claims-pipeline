@@ -7,6 +7,7 @@ const { createApiRoutes } = require('./routes/api');
 const { connectToDatabase, closeConnection } = require('./database');
 const { createAuthRoutes } = require('./routes/auth');
 const { authenticateRequest } = require('./middleware/auth');
+const { handleMLWebhook } = require('./controllers/statusController')
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -101,6 +102,9 @@ app.post('/api/run',
       }
     });
   });
+
+// Mount ML webhook route (no auth required for server-to-server callback)
+app.post('/api/ml-webhook', handleMLWebhook);
 
 // Mount & Protect API routes
 app.use('/api/auth', createAuthRoutes());

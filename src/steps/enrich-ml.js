@@ -1,7 +1,8 @@
 const axios = require('axios');
 const FormData = require("form-data");
 const fs = require('fs');
-
+const { ObjectId } = require('mongodb');
+const { getDatabase } = require('../database');
 
 /**
  * Enrich unprocessed claims via external ML service (e.g. YT-Validator)
@@ -36,6 +37,18 @@ async function enrichML(context) {
     });
 
     console.log('ML enrichment running: ', response.data);
+
+    // Store task_id immediately, so we can do stuff like cancelling
+    if (response.data.task_id) {
+      const db = getDatabase();
+      await db.collection('pipeline_runs').updateOne(
+        { _id: new ObjectId(context.runId) },
+        { $set: {
+            'results.mlEnrichment.task_id': response.data.task_id,
+            'results.mlEnrichment.started_at': new Date()
+        }}
+      );
+    }
     return response.data
 
   } catch (error) {
