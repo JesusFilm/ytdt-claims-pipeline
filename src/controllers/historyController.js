@@ -2,6 +2,7 @@ const axios = require('axios');
 const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
 const { syncRunState } = require('../pipeline');
+const { createAuthedClient } = require('../lib/authtedClient');
 
 
 // Get pipeline run history
@@ -128,7 +129,8 @@ async function stopRun(req, res) {
     if (shouldStopML && process.env.ML_API_ENDPOINT) {
       try {
         console.log(`Stopping ML task ${mlTaskId}`);
-        await axios.post(`${process.env.ML_API_ENDPOINT}/stop/${mlTaskId}`, {}, { timeout: 5000 });
+        const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT, { timeout: 5000 });
+        await mlClient.post(`/stop/${mlTaskId}`);
       } catch (mlError) {
         console.error('Failed to stop ML task:', mlError.message);
         // Continue with pipeline stop anyway

@@ -3,6 +3,7 @@ const FormData = require("form-data");
 const fs = require('fs');
 const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
+const { createAuthedClient } = require('../lib/authtedClient');
 
 /**
  * Enrich unprocessed claims via external ML service (e.g. YT-Validator)
@@ -30,9 +31,9 @@ async function enrichML(context) {
     formData.append('skip_validation', String(true));
 
     // Configure axios with 30s timeout and retry logic
-    const response = await axios.post(`${process.env.ML_API_ENDPOINT}/predict`, formData, {
+    const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT);
+    const response = await mlClient.post('/predict', formData, {
       headers: formData.getHeaders(),
-      timeout: 30000,
       validateStatus: (status) => status >= 200 && status < 300,
     });
 
@@ -43,10 +44,12 @@ async function enrichML(context) {
       const db = getDatabase();
       await db.collection('pipeline_runs').updateOne(
         { _id: new ObjectId(context.runId) },
-        { $set: {
+        {
+          $set: {
             'results.mlEnrichment.task_id': response.data.task_id,
             'results.mlEnrichment.started_at': new Date()
-        }}
+          }
+        }
       );
     }
     return response.data

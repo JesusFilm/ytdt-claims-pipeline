@@ -1,12 +1,14 @@
+
+const { ObjectId } = require('mongodb');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 
+const { createAuthedClient } = require('../lib/authtedClient.js');
 const { generateRunFolderName } = require('../lib/utils');
 const { getOrCreateFolder, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
-const { ObjectId } = require('mongodb');
 
 
 // Enhanced status with pipeline step details from MongoDB
@@ -31,7 +33,7 @@ function getStatus(pipelineStatus) {
 
 // System health check - both this backend and ML service
 function getHealth(req, res) {
-  
+
   const healthCheck = async () => {
     const health = {
       status: 'ok',
@@ -46,8 +48,10 @@ function getHealth(req, res) {
 
     // Check ML service
     try {
-      const response = await axios.get(`${process.env.ML_API_ENDPOINT}/health`, { timeout: 5000 });
+      const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT, { timeout: 5000 });
+      await mlClient.get('/health');
       health.enrich_ml_status = 'healthy';
+
     } catch (error) {
       health.enrich_ml_status = 'unhealthy';
       health.status = 'degraded';
@@ -87,8 +91,10 @@ async function handleMLWebhook(req, res) {
       try {
 
         // Download CSV file from ML service locally
-        const fullCsvUrl = `${ML_API_ENDPOINT}${payload.csv_path}`;Retry
-        const response = await axios.get(fullCsvUrl, { responseType: 'stream' });
+        const fullCsvUrl = `${ML_API_ENDPOINT}${payload.csv_path}`; Retry
+        const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT);
+        const response = await mlClient.get(fullCsvUrl, { responseType: 'stream' });
+
         const tempPath = path.join(process.cwd(), 'data', 'exports', folderName, fileName);
         const writer = fs.createWriteStream(tempPath);
         response.data.pipe(writer);
@@ -110,7 +116,8 @@ async function handleMLWebhook(req, res) {
     // Set ML result and mark enrich_ml step as completed
     await db.collection('pipeline_runs').updateOne(
       { _id: new ObjectId(pipeline_run_id) },
-      { $set: {
+      {
+        $set: {
           'results.mlEnrichment': {
             task_id,
             status,

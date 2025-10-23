@@ -197,6 +197,17 @@ docker run -d \
   ytdt-claims-pipeline
 ```
 
+* Export project envs to shell for pickup by `gcloud` 
+
+```shell
+# Create production env file with proper envs and brand new JWT_SECRET:
+# JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(64).toString('hex'))")
+cp src/.env.example .env.production
+
+# Export to shell
+set -a && source .env.production && set +a
+```
+
 *  Publish image to Google Artifact Registry 
 
 ```shell
@@ -224,38 +235,30 @@ gcloud services enable secretmanager.googleapis.com
 echo -n "$MYSQL_PASSWORD" | gcloud secrets create mysql-password --data-file=-
 echo -n "$SLACK_BOT_TOKEN" | gcloud secrets create slack-bot-token --data-file=-
 echo -n "$SLACK_SIGNING_SECRET" | gcloud secrets create slack-signing-secret --data-file=-
+echo -n "$GOOGLE_CLIENT_ID" | gcloud secrets create google-client-id --data-file=-
+echo -n "$GOOGLE_CLIENT_SECRET" | gcloud secrets create google-client-secret --data-file=-
+
 gcloud secrets create vpn-config --data-file="$VPN_CONFIG_FILE"
 
 # Grant the service account access to all secrets (by project admin)
-for secret in mysql-password slack-bot-token slack-signing-secret vpn-config; do
+for secret in mysql-password slack-bot-token slack-signing-secret vpn-config google-client-id google-client-secret; do
   gcloud secrets add-iam-policy-binding $secret \
     --member="serviceAccount:$SERVICE_ACCOUNT" \
     --role="roles/secretmanager.secretAccessor"
 done
 
 # Ensure access is granted
-for secret in mysql-password slack-bot-token slack-signing-secret vpn-config; do
-  gcloud secrets get-iam-policy $secret
+for secret in mysql-password slack-bot-token slack-signing-secret vpn-config google-client-id google-client-secret; do
+  gcloud secrets get-iam-policy $secret |grep $SERVICE_ACCOUNT
 done
 ```
 
 ### 4. Deploy to Google Cloud Run 
 
-* Export project envs to shell for pickup by the gcloud binary
-
-```shell
-# Create production env file with proper envs and brand new JWT_SECRET:
-# JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(64).toString('hex'))")
-cp src/.env.example .env.production
-
-# Export to shell
-set -a && source .env.production && set +a
-```
-
 * Deploy
 
 ```shell
-# Create the VM (needs re-creation if template edited)
+# With required envs only
 gcloud run deploy ytdt-claims-pipeline \
   --image us-east1-docker.pkg.dev/jfp-data-warehouse/ytdt-claims/ytdt-claims-pipeline:latest \
   --platform managed \
@@ -264,8 +267,13 @@ gcloud run deploy ytdt-claims-pipeline \
   --vpc-connector ytdt-connector \
   --service-account $SERVICE_ACCOUNT \
   --set-env-vars NODE_ENV=$NODE_ENV,MONGODB_URI=$MONGODB_URI,MYSQL_HOST=$MYSQL_HOST,MYSQL_USER=$MYSQL_USER,MYSQL_DATABASE=$MYSQL_DATABASE \
-  --set-secrets MYSQL_PASSWORD=mysql-password:latest,SLACK_BOT_TOKEN=slack-bot-token:latest,SLACK_SIGNING_SECRET=slack-signing-secret:latest \
+  --set-secrets MYSQL_PASSWORD=mysql-password:latest \
   --allow-unauthenticated
+
+# Optionally, to promote vars to secrets:
+# gcloud run services update ytdt-claims-pipeline --region us-east1 \
+#   --update-secrets GOOGLE_CLIENT_ID=google-client-id:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest \
+#   --remove-env-vars GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET
 ```
 
 * Track the URL of deployed microservice 
@@ -276,18 +284,33 @@ BACKEND_URL=$(gcloud run services describe ytdt-claims-pipeline --region us-east
 ### 6. (Optional) Update the deployment with additional environment variables
 
 Feg., this backend has the following external (optional) services dependencies:
+(Safe, won't override existing envs)
 
 ```shell
-# Safe, won't override existing envs
-gcloud run services update ytdt-claims-pipeline --region us-east1 \
+# Update external services urls
+gcloud run services update ytdt-claims-pipeline \
+  --region us-east1 \
   --update-env-vars \
 ML_API_ENDPOINT=$(gcloud run services describe yt-validator --region us-east1 --format 'value(status.url)'),\
 FRONTEND_URL=$FRONTEND_URL,\
 GOOGLE_REDIRECT_URI=$BACKEND_URL/api/auth/google/callback,\
-GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET,\
-SLACK_CHANNEL=$SLACK_CHANNEL
+SLACK_CHANNEL=$SLACK_CHANNEL \
+  --update-secrets \
+SLACK_BOT_TOKEN=slack-bot-token:latest,\
+SLACK_SIGNING_SECRET=slack-signing-secret:latest,\
+GOOGLE_CLIENT_ID=google-client-id:latest,\
+GOOGLE_CLIENT_SECRET=google-client-secret:latest
+
+# List-values eg. "jesusfilm.org,p2c.com" require special treatment: 
+# The ^;^ tells gcloud to use ; as the separator instead of ,
+gcloud run services update ytdt-claims-pipeline --region us-east1 \
+  --update-env-vars '^;^GOOGLE_WORKSPACE_DOMAINS=jesusfilm.org,p2c.com'
 ```
-ML_API_ENDPOINT=
+
+* Inspect envs (yay! can't show secrets)
+```shell
+gcloud run services describe ytdt-claims-pipeline --region us-east1 --format=json | jq -r '.spec.template.spec.containers[0].env[]'
+```
 
 ### 7. Test Deployment
 
@@ -301,7 +324,25 @@ the request is from an authenticated Google user or service account.
 curl $BACKEND_URL/api/health -H "Authorization: bearer $(gcloud auth print-identity-token)"
 ```
 
-* Make publicly accessible (Frontend elsewhere than GCP)
+### 8. Fix Google Cloud Run permissions
+
+* Give service account permission to invoke both services, allowing them to call each other with authentication.
+
+```shell
+# yt-validator needs permission to invoke ytdt-claims-pipeline (for webhook)
+gcloud run services add-iam-policy-binding ytdt-claims-pipeline \
+  --region=us-east1 \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/run.invoker"
+
+# ytdt-claims-pipeline needs permission to invoke yt-validator (for ML API)  
+gcloud run services add-iam-policy-binding yt-validator \
+  --region=us-east1 \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/run.invoker"
+```
+
+* Make publicly accessible (Frontend hosted elsewhere than GCP)
 
 ```shell
 gcloud run services add-iam-policy-binding ytdt-claims-pipeline \
@@ -312,10 +353,6 @@ gcloud run services add-iam-policy-binding ytdt-claims-pipeline \
 Or `Service Details > Security > Authentication > "Allow public access"` in Google Console.
 Nota: Project Admin required!
 
-* Inspect envs (yay! can't show secrets)
-```shell
-gcloud run services describe ytdt-claims-pipeline --region us-east1 --format=json | jq -r '.spec.template.spec.containers[0].env[]'
-```
 
 ## Integrations
 
