@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
-    "start": "sudo -E node src/api.js",
-    "dev": "sudo -E nodemon src/api.js"
+    "start": "sudo -E node src/server.js",
+    "dev": "sudo -E nodemon src/server.js"
   },
   "dependencies": {
     "axios": "^1.6.0",

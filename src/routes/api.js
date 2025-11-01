@@ -20,7 +20,6 @@ function createApiRoutes(pipelineStatus) {
 
   // Status routes
   router.get('/status', statusController.getStatus(pipelineStatus));
-  router.get('/health', statusController.getHealth);
 
   // Slack interaction route
   router.post('/slack/interactions', slackController.handleInteraction);

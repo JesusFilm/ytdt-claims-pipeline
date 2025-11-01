@@ -84,6 +84,7 @@ async function handleMLWebhook(req, res) {
     const duration = enrichStep?.timestamp ? Date.now() - new Date(enrichStep.timestamp).getTime() : 0;
     const folderName = generateRunFolderName(run.startTime);;
     const fileName = `unprocessed_claims_${enrichStep.name}.csv`
+    const fullCsvUrl = path.join(process.env.ML_API_ENDPOINT, csv_path);
 
     // Upload CSV to Drive if successful and Drive is configured
     let driveUpload = null;
@@ -91,9 +92,8 @@ async function handleMLWebhook(req, res) {
       try {
 
         // Download CSV file from ML service locally
-        const fullCsvUrl = `${ML_API_ENDPOINT}${payload.csv_path}`; Retry
         const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT);
-        const response = await mlClient.get(fullCsvUrl, { responseType: 'stream' });
+        const response = await mlClient.get(csv_path, { responseType: 'stream' });
 
         const tempPath = path.join(process.cwd(), 'data', 'exports', folderName, fileName);
         const writer = fs.createWriteStream(tempPath);

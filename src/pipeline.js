@@ -373,7 +373,7 @@ async function syncRunState(runId, completionData = {}) {
     updateFields.error = `Pipeline timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`;
     updateFields.endTime = new Date();
     updateFields.duration = Date.now() - new Date(run.startTime).getTime();
-    console.log(`Pipeline ${runId} timed out`);
+    console.log(`Pipeline ${runId} timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`);
   }
   // Check if pipeline can be marked complete
   else {

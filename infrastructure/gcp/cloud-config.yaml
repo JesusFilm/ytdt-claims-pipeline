@@ -1,0 +1,261 @@
+#cloud-config
+
+write_files:
+- path: /root/setup-vm.sh
+  permissions: '0755'
+  content: |
+    #!/bin/bash
+    set -e
+    
+    echo "=== Starting VM Setup ==="
+    
+    # Install packages
+    echo "Installing packages..."
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nginx certbot python3-certbot-nginx wget curl git openvpn p7zip-full
+    
+    # Install Node.js v20
+    echo "Installing Node.js v20..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+    node --version
+    npm --version
+    
+    # Install Miniconda
+    echo "Installing Miniconda..."
+    if [ ! -d "/opt/miniconda3" ]; then
+        wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+        bash /tmp/miniconda.sh -b -p /opt/miniconda3
+        rm /tmp/miniconda.sh
+    fi
+    
+    # Get configuration from metadata
+    YT_VALIDATOR_REPO=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/yt-validator-repo || echo "https://github.com/matthew-jf/YT-Validator.git")
+    YT_VALIDATOR_BRANCH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/yt-validator-branch || echo "chore/cli-api-wrapper")
+    PROJECT_ID=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/project-id || echo "jfp-data-warehouse")
+    SSL_EMAIL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/ssl-email || echo "me@ceduth.dev")
+    LETSENCRYPT_STAGING=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/letsencrypt-staging || echo "")
+
+    echo "YT-Validator Repo: ${YT_VALIDATOR_REPO}"
+    echo "YT-Validator Branch: ${YT_VALIDATOR_BRANCH}"
+    echo "Project ID: ${PROJECT_ID}"
+    echo "SSL Email: ${SSL_EMAIL}"
+    
+    # Clone YT-Validator
+    echo "Cloning YT-Validator..."
+    if [ ! -d "/opt/yt-validator" ]; then
+        git clone -b ${YT_VALIDATOR_BRANCH} ${YT_VALIDATOR_REPO} /opt/yt-validator
+        mkdir -p /opt/yt-validator/data
+    fi
+
+    # Create conda environment
+    echo "Creating conda environment..."
+    cd /opt/yt-validator
+    source /opt/miniconda3/etc/profile.d/conda.sh
+    
+    # Accept conda TOS non-interactively
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+    
+    if ! conda env list | grep -q "YT-Validator"; then
+        # Use environment-no-builds.yml for cross-platform compatibility
+        if [ -f environment-no-builds.yml ]; then
+            conda env create -f environment-no-builds.yml
+        else
+            conda env create -f environment.yml
+        fi
+    fi
+
+    # Uncompress YT.csv training data
+    echo "Uncompressing YT.csv.7z..."
+    if [ -f /opt/yt-validator/YT.csv.7z ]; then
+        7z x /opt/yt-validator/YT.csv.7z -o/opt/yt-validator
+        echo "YT.csv extracted successfully"
+    else
+        echo "WARNING: YT.csv.7z not found in /opt/yt-validator"
+    fi
+    
+    # Download ytdt-claims-pipeline from GCS
+    echo "Downloading ytdt-claims-pipeline source..."
+    if [ ! -d "/opt/ytdt-claims-pipeline" ]; then
+        mkdir -p /opt/ytdt-claims-pipeline
+        gsutil cp gs://ytdt-claims/ytdt-claims-pipeline.tar.gz /tmp/ytdt-claims-pipeline.tar.gz
+        tar -xzf /tmp/ytdt-claims-pipeline.tar.gz -C /opt/ytdt-claims-pipeline
+        rm /tmp/ytdt-claims-pipeline.tar.gz
+    fi
+    
+    # Install Node.js dependencies
+    echo "Installing Node.js dependencies..."
+    cd /opt/ytdt-claims-pipeline
+    npm install
+    
+    # Get external IP
+    echo "Getting external IP..."
+    EXTERNAL_IP=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+    DOMAIN="${EXTERNAL_IP}.nip.io"
+    echo "Domain: $DOMAIN"
+    
+    # Create environment file
+    echo "Creating environment file..."
+    mkdir -p /etc/ytdt-claims-pipeline
+    cat > /etc/ytdt-claims-pipeline/.env << 'EOF'
+    NODE_ENV=__NODE_ENV__
+    PORT=__PORT__
+    MONGODB_URI=__MONGODB_URI__
+    JWT_SECRET=__JWT_SECRET__
+    PIPELINE_TIMEOUT_MINUTES=__PIPELINE_TIMEOUT_MINUTES__
+    SKIP_VPN=__SKIP_VPN__
+    FRONTEND_URL=__FRONTEND_URL__
+    MYSQL_HOST=__MYSQL_HOST__
+    MYSQL_USER=__MYSQL_USER__
+    MYSQL_PASSWORD=__MYSQL_PASSWORD__
+    MYSQL_DATABASE=__MYSQL_DATABASE__
+    VPN_CONFIG_FILE=__VPN_CONFIG_FILE__
+    VPN_AUTH_FILE=__VPN_AUTH_FILE__
+    EXPORT_FOLDER_NAME_FORMAT="__EXPORT_FOLDER_NAME_FORMAT__"
+    GOOGLE_DRIVE_NAME=__GOOGLE_DRIVE_NAME__
+    SLACK_CHANNEL=__SLACK_CHANNEL__
+    SLACK_BOT_TOKEN=__SLACK_BOT_TOKEN__
+    SLACK_SIGNING_SECRET=__SLACK_SIGNING_SECRET__
+    GOOGLE_CLIENT_ID=__GOOGLE_CLIENT_ID__
+    GOOGLE_CLIENT_SECRET=__GOOGLE_CLIENT_SECRET__
+    GOOGLE_WORKSPACE_DOMAINS=__GOOGLE_WORKSPACE_DOMAINS__
+    EOF
+    sed -i 's/^    //' /etc/ytdt-claims-pipeline/.env
+    chmod 600 /etc/ytdt-claims-pipeline/.env
+    
+    # Configure Nginx (HTTP-only first for certbot)
+    echo "Configuring Nginx..."
+    echo "    server {" > /etc/nginx/sites-available/ytdt
+    echo "        listen 80;" >> /etc/nginx/sites-available/ytdt
+    echo "        server_name ${DOMAIN};" >> /etc/nginx/sites-available/ytdt
+    echo "        " >> /etc/nginx/sites-available/ytdt
+    echo "        location /.well-known/acme-challenge/ {" >> /etc/nginx/sites-available/ytdt
+    echo "            root /var/www/html;" >> /etc/nginx/sites-available/ytdt
+    echo "        }" >> /etc/nginx/sites-available/ytdt
+    echo "        " >> /etc/nginx/sites-available/ytdt
+    echo "        location / {" >> /etc/nginx/sites-available/ytdt
+    echo "            proxy_pass http://localhost:3000;" >> /etc/nginx/sites-available/ytdt
+    echo "            proxy_set_header Host \$host;" >> /etc/nginx/sites-available/ytdt
+    echo "            proxy_set_header X-Real-IP \$remote_addr;" >> /etc/nginx/sites-available/ytdt
+    echo "            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;" >> /etc/nginx/sites-available/ytdt
+    echo "            proxy_set_header X-Forwarded-Proto \$scheme;" >> /etc/nginx/sites-available/ytdt
+    echo "            proxy_read_timeout 3600s;" >> /etc/nginx/sites-available/ytdt
+    echo "            proxy_connect_timeout 3600s;" >> /etc/nginx/sites-available/ytdt
+    echo "        }" >> /etc/nginx/sites-available/ytdt
+    echo "    }" >> /etc/nginx/sites-available/ytdt
+    
+    ln -sf /etc/nginx/sites-available/ytdt /etc/nginx/sites-enabled/
+    rm -f /etc/nginx/sites-enabled/default
+    
+    # Start nginx
+    echo "Starting Nginx..."
+    systemctl restart nginx
+    
+    # Get SSL certificate (optional - continue if fails)
+    echo "Obtaining SSL certificate..."
+    if certbot --nginx -d ${DOMAIN} --non-interactive --agree-tos --email ${SSL_EMAIL} --redirect ${LETSENCRYPT_STAGING}; then
+        echo "SSL certificate obtained successfully"
+    else
+        echo "WARNING: Failed to obtain SSL certificate. Continuing with HTTP-only setup."
+        echo "You can manually run 'certbot --nginx -d ${DOMAIN}' later to add SSL."
+    fi
+    
+    # Setup SSL renewal cron
+    echo "Setting up SSL renewal..."
+    cat > /usr/local/bin/renew-ssl.sh <<'SSLEOF'
+    #!/bin/bash
+    certbot renew --quiet --nginx || true
+    systemctl reload nginx || true
+    SSLEOF
+    chmod +x /usr/local/bin/renew-ssl.sh
+    (crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/renew-ssl.sh") | crontab -
+    
+    # Set dynamic environment variables
+    echo "Setting dynamic environment variables..."
+    EXTERNAL_IP=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+    if [ -f "/etc/letsencrypt/live/${EXTERNAL_IP}.nip.io/fullchain.pem" ]; then PROTOCOL=https; else PROTOCOL=http; fi
+    echo "BASE_URL=${PROTOCOL}://${EXTERNAL_IP}.nip.io" >> /etc/ytdt-claims-pipeline/.env
+    echo "ML_API_ENDPOINT=http://localhost:3001" >> /etc/ytdt-claims-pipeline/.env
+    echo "GOOGLE_REDIRECT_URI=${PROTOCOL}://${EXTERNAL_IP}.nip.io/api/auth/google/callback" >> /etc/ytdt-claims-pipeline/.env
+
+    echo "Configuring VPN to only route MySQL traffic..."
+    MYSQL_IP=$(getent hosts "__MYSQL_HOST__" | awk '{ print $1 }')
+    cat >> /opt/ytdt-claims-pipeline/config/vpn/client.ovpn << VPNEOF
+    pull-filter ignore redirect-gateway
+    route $MYSQL_IP 255.255.255.255 vpn_gateway
+    VPNEOF
+
+    # Create YT-Validator systemd service
+    echo "Creating YT-Validator service..."
+    cat > /etc/systemd/system/yt-validator.service <<'YTEOF'
+    [Unit]
+    Description=YT Validator ML Service
+    After=network-online.target
+    Wants=network-online.target
+    
+    [Service]
+    Type=simple
+    User=root
+    WorkingDirectory=/opt/yt-validator
+    Restart=always
+    RestartSec=10
+    
+    Environment="PATH=/opt/miniconda3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    Environment="FLASK_RUN_HOST=0.0.0.0"
+    Environment="FLASK_RUN_PORT=3001"
+    Environment="FLASK_DEBUG=0"
+    
+    ExecStartPre=/bin/bash -c 'echo "BASE_URL=http://localhost:3001" > /opt/yt-validator/.env'
+    ExecStartPre=/bin/bash -c 'echo "YT_API_KEY=__YT_API_KEY__" >> /opt/yt-validator/.env'    
+    ExecStart=/bin/bash -c 'source /opt/miniconda3/etc/profile.d/conda.sh && conda activate YT-Validator && set -a && source /opt/yt-validator/.env && set +a && python /opt/yt-validator/app.py'
+
+    [Install]
+    WantedBy=multi-user.target
+    YTEOF
+    
+    # Create ytdt-claims-pipeline systemd service
+    echo "Creating ytdt-claims-pipeline service..."
+    cat > /etc/systemd/system/ytdt-claims-pipeline.service <<'PIPEEOF'
+    [Unit]
+    Description=YTDT Claims Pipeline
+    After=network-online.target
+    Wants=network-online.target
+    
+    [Service]
+    Type=simple
+    User=root
+    WorkingDirectory=/opt/ytdt-claims-pipeline
+    Restart=always
+    RestartSec=10
+    
+    Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ExecStart=/bin/bash -c 'set -a && source /etc/ytdt-claims-pipeline/.env && set +a && node src/server.js'
+    
+    [Install]
+    WantedBy=multi-user.target
+    PIPEEOF
+    
+    # Start services
+    echo "Starting services..."
+    systemctl daemon-reload
+    systemctl enable yt-validator
+    systemctl enable ytdt-claims-pipeline
+    systemctl start yt-validator
+    sleep 5
+    systemctl start ytdt-claims-pipeline
+    
+    echo "=== Setup Complete ==="
+    if [ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
+        echo "Access at: https://${DOMAIN}"
+        echo "Google OAuth2 Redirect URI: https://${DOMAIN}/api/auth/google/callback"
+    else
+        echo "Access at: http://${DOMAIN}"
+        echo "Google OAuth2 Redirect URI: http://${DOMAIN}/api/auth/google/callback"
+        echo ""
+        echo "NOTE: SSL certificate setup failed. To add SSL later, run:"
+        echo "  sudo certbot --nginx -d ${DOMAIN}"
+    fi
+
+runcmd:
+  - /root/setup-vm.sh

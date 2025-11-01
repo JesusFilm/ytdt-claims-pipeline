@@ -36,7 +36,7 @@ sudo openvpn --config ./config/vpn/client.ovpn
 
 ### API Server
 
-Note: sudo privlieges required
+Note: sudo privileges required to spawn the VPN client.
 
 ```shell
 export \
@@ -58,7 +58,7 @@ eg. `.vscode/launch.json`for debugging:
             "name": "Dev (watch mode)",
             "runtimeExecutable": "sudo",
             "runtimeArgs": [ "-E", "./node_modules/.bin/nodemon" ],
-            "program": "${workspaceFolder}/src/api.js",
+            "program": "${workspaceFolder}/src/server.js",
             "restart": true,
             "envFile": "${workspaceFolder}/.env",
             "env": {
@@ -98,23 +98,9 @@ SKIP_VPN=true sudo node scripts/test-pipeline.js
 ```
 
 
-## Production (Google Cloud Run)
+## Production - Google Cloud Engine (GCE)
 
-Every Cloud Run service gets a secure HTTPS endpoint with a valid SSL certificate. No configuration needed.
-
-### Deployment env vars set (not the project envs)
-
-```shell
-export \
-  PROJECT_ID=jfp-data-warehouse \
-  SERVICE_ACCOUNT=ceduth-jfp-dev@jfp-data-warehouse.iam.gserviceaccount.com \
-  GAR_REPO=ytdt-claims 
-
-export \
-  IMAGE_URL=us-east1-docker.pkg.dev/$PROJECT_ID/$GAR_REPO/ytdt-claims-pipeline:latest 
-```
-
-### 1. Database setup
+### 1. Deploy database
 
 **Step 1) Create MongoDB VM on Google Cloud Engine (GCE)**
 
@@ -153,205 +139,7 @@ Get internal VM IP from:
 gcloud compute instances describe ytdt-mongodb 
 ```
 
-### 2. Setup Googole Artifact repository permissions
-
-```shell
-# Optionally set SA to existing VM
-gcloud compute instances set-service-account ytdt-claims-pipeline \
-  --service-account=ceduth-jfp-dev@jfp-data-warehouse.iam.gserviceaccount.com \
-  --scopes=https://www.googleapis.com/auth/cloud-platform \
-  --zone=us-east1-b
-
-# Give the artifact repo read permission for the service account
-gcloud artifacts repositories add-iam-policy-binding ytdt-claims \
-  --location=us-east1 \
-  --member="serviceAccount:$SERVICE_ACCOUNT" \
-  --role="roles/artifactregistry.reader"
-
-# Verify service account permissions
-gcloud artifacts repositories get-iam-policy ytdt-claims \
-  --location=us-east1
-
-# Ensure Service Account is attached to the VM
-gcloud compute instances describe ytdt-claims-pipeline --zone=us-east1-b |grep $SERVICE_ACCOUNT 
-```
-
-### 3. Build backend image to Registry
-
-* Build image
-
-```shell
-docker buildx build --platform linux/amd64 -f infrastructure/Dockerfile -t ytdt-claims-pipeline:latest .
-```
-
-* Test container locally
-
-```shell
-docker run -d \
-  --privileged \
-  --cap-add=NET_ADMIN \
-  --cap-add=SYS_ADMIN \
-  -v /path/to/vpn-config:/config/vpn \
-  -p 3000:3000 \
-  --env-file .env \
-  ytdt-claims-pipeline
-```
-
-* Export project envs to shell for pickup by `gcloud` 
-
-```shell
-# Create production env file with proper envs and brand new JWT_SECRET:
-# JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(64).toString('hex'))")
-cp src/.env.example .env.production
-
-# Export to shell
-set -a && source .env.production && set +a
-```
-
-*  Publish image to Google Artifact Registry 
-
-```shell
-# Configure Docker for Google Artifact Registry (one-time setup)
-gcloud config set project $PROJECT_ID
-gcloud auth configure-docker us-east1-docker.pkg.dev
-
-# Create repository (one-time setup)
-gcloud artifacts repositories create $GAR_REPO \
-  --repository-format=docker \
-  --location=us-east1
-
-# Tag and push to GAR
-docker tag ytdt-claims-pipeline:latest $IMAGE_URL
-docker push $IMAGE_URL
-```
-
-* Store secrets in GCP Secret Manager (one-time setup)**
-
-```shell
-# Enable Secrets Manager API
-gcloud services enable secretmanager.googleapis.com
-
-# Create secrets from .env.production variables
-echo -n "$MYSQL_PASSWORD" | gcloud secrets create mysql-password --data-file=-
-echo -n "$SLACK_BOT_TOKEN" | gcloud secrets create slack-bot-token --data-file=-
-echo -n "$SLACK_SIGNING_SECRET" | gcloud secrets create slack-signing-secret --data-file=-
-echo -n "$GOOGLE_CLIENT_ID" | gcloud secrets create google-client-id --data-file=-
-echo -n "$GOOGLE_CLIENT_SECRET" | gcloud secrets create google-client-secret --data-file=-
-
-gcloud secrets create vpn-config --data-file="$VPN_CONFIG_FILE"
-
-# Grant the service account access to all secrets (by project admin)
-for secret in mysql-password slack-bot-token slack-signing-secret vpn-config google-client-id google-client-secret; do
-  gcloud secrets add-iam-policy-binding $secret \
-    --member="serviceAccount:$SERVICE_ACCOUNT" \
-    --role="roles/secretmanager.secretAccessor"
-done
-
-# Ensure access is granted
-for secret in mysql-password slack-bot-token slack-signing-secret vpn-config google-client-id google-client-secret; do
-  gcloud secrets get-iam-policy $secret |grep $SERVICE_ACCOUNT
-done
-```
-
-### 4. Deploy to Google Cloud Run 
-
-* Deploy
-
-```shell
-# With required envs only
-gcloud run deploy ytdt-claims-pipeline \
-  --image us-east1-docker.pkg.dev/jfp-data-warehouse/ytdt-claims/ytdt-claims-pipeline:latest \
-  --platform managed \
-  --region us-east1 \
-  --port 3000 \
-  --vpc-connector ytdt-connector \
-  --service-account $SERVICE_ACCOUNT \
-  --set-env-vars NODE_ENV=$NODE_ENV,MONGODB_URI=$MONGODB_URI,MYSQL_HOST=$MYSQL_HOST,MYSQL_USER=$MYSQL_USER,MYSQL_DATABASE=$MYSQL_DATABASE \
-  --set-secrets MYSQL_PASSWORD=mysql-password:latest \
-  --allow-unauthenticated
-
-# Optionally, to promote vars to secrets:
-# gcloud run services update ytdt-claims-pipeline --region us-east1 \
-#   --update-secrets GOOGLE_CLIENT_ID=google-client-id:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest \
-#   --remove-env-vars GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET
-```
-
-* Track the URL of deployed microservice 
-```shell
-BACKEND_URL=$(gcloud run services describe ytdt-claims-pipeline --region us-east1 --format 'value(status.url)')
-```
-
-### 6. (Optional) Update the deployment with additional environment variables
-
-Feg., this backend has the following external (optional) services dependencies:
-(Safe, won't override existing envs)
-
-```shell
-# Update external services urls
-gcloud run services update ytdt-claims-pipeline \
-  --region us-east1 \
-  --update-env-vars \
-ML_API_ENDPOINT=$(gcloud run services describe yt-validator --region us-east1 --format 'value(status.url)'),\
-FRONTEND_URL=$FRONTEND_URL,\
-GOOGLE_REDIRECT_URI=$BACKEND_URL/api/auth/google/callback,\
-SLACK_CHANNEL=$SLACK_CHANNEL \
-  --update-secrets \
-SLACK_BOT_TOKEN=slack-bot-token:latest,\
-SLACK_SIGNING_SECRET=slack-signing-secret:latest,\
-GOOGLE_CLIENT_ID=google-client-id:latest,\
-GOOGLE_CLIENT_SECRET=google-client-secret:latest
-
-# List-values eg. "jesusfilm.org,p2c.com" require special treatment: 
-# The ^;^ tells gcloud to use ; as the separator instead of ,
-gcloud run services update ytdt-claims-pipeline --region us-east1 \
-  --update-env-vars '^;^GOOGLE_WORKSPACE_DOMAINS=jesusfilm.org,p2c.com'
-```
-
-* Inspect envs (yay! can't show secrets)
-```shell
-gcloud run services describe ytdt-claims-pipeline --region us-east1 --format=json | jq -r '.spec.template.spec.containers[0].env[]'
-```
-
-### 7. Test Deployment
-
-* Without Public Access
-
-Uses `gcloud auth print-identity-token` that generates/uses an identity token that proves to Cloud Run that 
-the request is from an authenticated Google user or service account.
-
-```shell
-# Test with Google-signed JWT token generated for the current user/service account
-curl $BACKEND_URL/api/health -H "Authorization: bearer $(gcloud auth print-identity-token)"
-```
-
-### 8. Fix Google Cloud Run permissions
-
-* Give service account permission to invoke both services, allowing them to call each other with authentication.
-
-```shell
-# yt-validator needs permission to invoke ytdt-claims-pipeline (for webhook)
-gcloud run services add-iam-policy-binding ytdt-claims-pipeline \
-  --region=us-east1 \
-  --member="serviceAccount:$SERVICE_ACCOUNT" \
-  --role="roles/run.invoker"
-
-# ytdt-claims-pipeline needs permission to invoke yt-validator (for ML API)  
-gcloud run services add-iam-policy-binding yt-validator \
-  --region=us-east1 \
-  --member="serviceAccount:$SERVICE_ACCOUNT" \
-  --role="roles/run.invoker"
-```
-
-* Make publicly accessible (Frontend hosted elsewhere than GCP)
-
-```shell
-gcloud run services add-iam-policy-binding ytdt-claims-pipeline \
-  --region=us-east1 \
-  --member="allUsers" \
-  --role="roles/run.invoker"
-```
-Or `Service Details > Security > Authentication > "Allow public access"` in Google Console.
-Nota: Project Admin required!
+### 2. [Deploy ytdt-claims-pipeline](./docs/deploy.md) to GCE.
 
 
 ## Integrations

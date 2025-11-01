@@ -5,7 +5,7 @@ const { GoogleAuth } = require('google-auth-library');
 async function createAuthedClient(baseURL, options = {}) {
   const headers = {};
   
-  // Auto-detect Cloud Run environment
+  // Optional: auto-detect Cloud Run environment (service-to-service auth)
   if (process.env.K_SERVICE && baseURL) {
     const auth = new GoogleAuth();
     const client = await auth.getIdTokenClient(baseURL);

@@ -10,18 +10,24 @@ async function disconnectVPN(context) {
     console.log('MySQL connection closed');
   }
 
-  if (context.connections.vpnProcess) {
-    context.connections.vpnProcess.kill();
-  }
+  // Only kill OpenVPN if we spawned it 
+  const skipVpn = ['true', '1'].includes(process.env.SKIP_VPN);
+  if (!skipVpn) {
+    if (context.connections.vpnProcess) {
+      context.connections.vpnProcess.kill();
+    }
 
-  // Kill any remaining openvpn processes
-  try {
-    await execAsync('pkill -f openvpn');
-  } catch (e) {
-    // Ignore errors
-  }
+    // Kill any remaining openvpn processes
+    try {
+      await execAsync('pkill -f openvpn');
+    } catch (e) {
+      // Ignore errors
+    }
 
-  console.log('VPN disconnected');
+    console.log('VPN disconnected');
+  } else {
+    console.log('Passthrough mode - no VPN process to disconnect');
+  }
 }
 
 module.exports = disconnectVPN;
