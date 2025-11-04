@@ -40,35 +40,61 @@ function normalizeClaimsColumns(row) {
 async function validateInputCSVs(context) {
   const errors = [];
 
-  for (const [fileType, filePath] of Object.entries(context.files)) {
-    if (!filePath || !VALID_COLUMNS[fileType] || fileType === 'claimsSource') continue;
+  // Validate claims files (may have multiple sources)
+  if (context.files.claims) {
+    for (const [source, filePath] of Object.entries(context.files.claims)) {
+      if (!filePath) continue;
+
+      try {
+        const fileContent = await fs.readFile(filePath, 'utf8');
+        const lines = fileContent.split('\n').slice(0, 2);
+        const csvContent = lines.join('\n');
+
+        let rows = csv.parse(csvContent, { columns: true });
+        if (rows.length === 0) {
+          errors.push(`claims (${source}): File appears to be empty`);
+          continue;
+        }
+
+        rows[0] = normalizeClaimsColumns(rows[0]);
+        const actualColumns = Object.keys(rows[0]);
+        const validColumns = VALID_COLUMNS.claims;
+        const invalidColumns = actualColumns.filter(col => !validColumns.includes(col));
+
+        if (invalidColumns.length > 0) {
+          errors.push(`claims (${source}): Invalid columns: ${invalidColumns.join(', ')}`);
+        }
+
+        console.log(`claims (${source}): ${actualColumns.length} columns found, all valid`);
+
+      } catch (error) {
+        errors.push(`claims (${source}): Failed to parse CSV - ${error.message}`);
+      }
+    }
+  }
+
+  // Validate verdict files (shared across sources)
+  for (const fileType of ['mcnVerdicts', 'jfmVerdicts']) {
+    const filePath = context.files[fileType];
+    if (!filePath) continue;
 
     try {
-      // Read only first 2 few lines to get headers
       const fileContent = await fs.readFile(filePath, 'utf8');
       const lines = fileContent.split('\n').slice(0, 2);
       const csvContent = lines.join('\n');
 
-      // Parse headers
       let rows = csv.parse(csvContent, { columns: true });
       if (rows.length === 0) {
         errors.push(`${fileType}: File appears to be empty`);
         continue;
       }
 
-      // Apply column normalization for claims files
-      if (fileType === 'claims' && rows[0]) {
-        rows[0] = normalizeClaimsColumns(rows[0]);
-      }
-
       const actualColumns = Object.keys(rows[0]);
       const validColumns = VALID_COLUMNS[fileType];
-
-      // Check for invalid columns (columns that don't exist in MySQL table)
       const invalidColumns = actualColumns.filter(col => !validColumns.includes(col));
 
       if (invalidColumns.length > 0) {
-        errors.push(`${fileType}: Invalid columns (don't exist in table): ${invalidColumns.join(', ')}`);
+        errors.push(`${fileType}: Invalid columns: ${invalidColumns.join(', ')}`);
       }
 
       console.log(`${fileType}: ${actualColumns.length} columns found, all valid`);

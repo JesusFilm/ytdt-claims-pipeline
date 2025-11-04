@@ -1,5 +1,0 @@
-claim_id,video_id,channel_id,asset_labels,claim_origin,views,video_title,channel_display_name
-TEST001,abc123,UCtest123,"#all-assets|Jesus Film Media",WEB_UPLOAD,1000,"Test Video","Jesus Film"
-TEST002,def456,UCtest123,"#all-assets|Jesus Film Media",MANUAL_CLAIM,500,"Another Video","Jesus Film"
-TEST003,ghi789,UCtest123,"#all-assets|TBN",WEB_UPLOAD,50,"Another Video","TBN Channel"
-TEST004,jkl012,UCtest123,"#all-assets|TBN",MANUAL_CLAIM,1500,"Another Video","TBN Channel"

@@ -31,9 +31,18 @@ function getPipelineSteps(files) {
       description: 'Creates backup copies of database tables before processing'
     },
     {
-      name: 'process_claims', fn: processClaims, condition: () => !!files.claims,
-      title: 'Process Claims',
-      description: 'Imports and processes new MCN claims from uploaded CSV files'
+      name: 'process_claims_matter_entertainment', 
+      fn: (ctx) => processClaims(ctx, 'matter_entertainment'), 
+      condition: () => !!files.claims?.matter_entertainment,
+      title: 'Process Claims (Matter Entertainment)',
+      description: 'Imports and processes Matter Entertainment MCN claims'
+    },
+    {
+      name: 'process_claims_matter_2', 
+      fn: (ctx) => processClaims(ctx, 'matter_2'), 
+      condition: () => !!files.claims?.matter_2,
+      title: 'Process Claims (Matter 2)',
+      description: 'Imports and processes Matter 2 MCN claims'
     },
     {
       name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts,

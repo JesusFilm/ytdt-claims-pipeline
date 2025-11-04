@@ -16,7 +16,6 @@ async function connectVPN(context) {
     await new Promise((resolve, reject) => {
       const vpn = spawn('openvpn', [
         '--config', process.env.VPN_CONFIG_FILE,
-        '--daemon',
         '--log', path.join(process.cwd(), 'logs', 'vpn.log')
       ]);
 

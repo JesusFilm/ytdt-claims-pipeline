@@ -46,7 +46,8 @@ async function initializeApp() {
 // Main pipeline endpoint
 app.post('/api/run',
   upload.fields([
-    { name: 'claims', maxCount: 1 },
+    { name: 'claims_matter_entertainment', maxCount: 1 },
+    { name: 'claims_matter_2', maxCount: 1 },
     { name: 'mcn_verdicts', maxCount: 1 },
     { name: 'jfm_verdicts', maxCount: 1 }
   ]),
@@ -60,8 +61,10 @@ app.post('/api/run',
     }
 
     const files = {
-      claims: req.files.claims?.[0]?.path,
-      claimsSource: req.body.claims_source || 'matter_entertainment',
+      claims: {
+        matter_entertainment: req.files.claims_matter_entertainment?.[0]?.path,
+        matter_2: req.files.claims_matter_2?.[0]?.path
+      },
       mcnVerdicts: req.files.mcn_verdicts?.[0]?.path,
       jfmVerdicts: req.files.jfm_verdicts?.[0]?.path
     };
@@ -97,7 +100,8 @@ app.post('/api/run',
     res.json({
       message: 'Pipeline started',
       files: {
-        claims: req.files.claims?.[0]?.originalname,
+        claims_matter_entertainment: req.files.claims_matter_entertainment?.[0]?.originalname,
+        claims_matter_2: req.files.claims_matter_2?.[0]?.originalname,
         mcnVerdicts: req.files.mcn_verdicts?.[0]?.originalname,
         jfmVerdicts: req.files.jfm_verdicts?.[0]?.originalname
       }

@@ -4,9 +4,9 @@ const { format } = require('date-fns');
 const { cleanRow } = require('../lib/utils');
 
 
-async function processClaims(context) {
+async function processClaims(context, claimsSource) {
 
-  const { claims, claimsSource } = context.files;
+  const claims = context.files.claims?.[claimsSource];
   if (!claims) return;
 
   const mysql = context.connections.mysql;
@@ -21,6 +21,8 @@ async function processClaims(context) {
     row.asset_labels?.includes('Jesus Film') ||
     (row.claim_origin === 'WEB_UPLOAD_BY_OWNER' && row.channel_id === 'UCCtcQHR6-mQHQh6G06IPlDA')
   );
+
+  filtered.forEach(row => { row.claim_report_source = claimsSource });
 
   // Batch insert
   const BATCH_SIZE = 5000;
@@ -41,7 +43,10 @@ async function processClaims(context) {
     AND video_id != ''
   `);
 
-  context.outputs.claimsProcessed = {
+  if (!context.outputs.claimsProcessed) {
+    context.outputs.claimsProcessed = {};
+  }
+  context.outputs.claimsProcessed[claimsSource] = {
     total: filtered.length,
     new: result.affectedRows
   };

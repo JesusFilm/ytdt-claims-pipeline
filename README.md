@@ -26,6 +26,7 @@ then install OpenVPN binary and dry-test (one-time):
 ```shell
 brew install openvpn
 sudo openvpn --config ./config/vpn/client.ovpn
+mkdir logs/
 ```
 
 3. **Google Drive** - Optional (for `upload_drive` step)
@@ -33,6 +34,9 @@ sudo openvpn --config ./config/vpn/client.ovpn
 - Create Service Account on GCP and download to `config/service-account-key.json`
 - Enable the Google Drive API
 
+4. **YT-Validator** - Inovked during ML Enrichment step
+
+Refer to [setup instructions](https://github.com/matthew-jf/YT-Validator/blob/chore/cli-api-wrapper/README.md).
 
 ### API Server
 
@@ -81,10 +85,43 @@ eg. `.vscode/launch.json`for debugging:
 ### Test Pipeline: Using API
 
 ```shell
-curl -X POST http://localhost:3000/api/pipeline/run \
-  -F "claims=@/path/to/claims.csv" \
-  -F "mcnVerdicts=@/path/to/mcn_verdicts.csv" \
-  -F "jfmVerdicts=@/path/to/jfm_verdicts.csv"
+BASE_URL="http://localhost:3000"
+TEST_DIR="./data/test"
+```
+
+* Test 1: Both sources + verdicts
+```shell
+curl -X POST $BASE_URL/api/run \
+  -F "claims_matter_entertainment=@$TEST_DIR/test_claims_matter_entertainment.csv" \
+  -F "claims_matter_2=@$TEST_DIR/test_claims_matter_2.csv" \
+  -F "mcn_verdicts=@$TEST_DIR/test_mcn_verdicts.csv" \
+  -F "jfm_verdicts=@$TEST_DIR/test_jfm_verdicts.csv"
+```
+
+* Test 2: Only matter_entertainment
+```shell
+curl -X POST $BASE_URL/api/run \
+  -F "claims_matter_entertainment=@$TEST_DIR/test_claims_matter_entertainment.csv" \
+  -F "mcn_verdicts=@$TEST_DIR/test_mcn_verdicts.csv"
+```
+
+* Test 3: Only matter_2
+```shell
+curl -X POST $BASE_URL/api/run \
+  -F "claims_matter_2=@$TEST_DIR/test_claims_matter_2.csv" \
+  -F "mcn_verdicts=@$TEST_DIR/test_mcn_verdicts.csv"
+```
+
+* Test 4: Check status
+
+```shell
+curl http://localhost:3000/api/status
+```
+
+```sql
+SELECT claim_report_source, COUNT(*) 
+FROM youtube_mcn_claims 
+GROUP BY claim_report_source;
 ```
 
 ### Test Pipeline: Using supplied script (generates test data)
