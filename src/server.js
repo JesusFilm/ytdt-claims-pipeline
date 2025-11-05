@@ -21,7 +21,7 @@ app.use(express.json());
 // File upload config
 const upload = multer({
   dest: 'data/uploads/',
-  limits: { fileSize: 1024 * 1024 * 1000 } // 1GB
+  limits: { fileSize: 1024 * 1024 * 5000 } // 5GB
 });
 
 // Store current pipeline status

@@ -3,6 +3,7 @@ const { formatDuration } = require('./utils');
 
 async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null) {
   if (!process.env.SLACK_BOT_TOKEN) {
+    console.log('Slack notifications disabled (no SLACK_BOT_TOKEN)');
     return;
   }
 

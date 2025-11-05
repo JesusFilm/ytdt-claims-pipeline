@@ -40,7 +40,9 @@ Refer to [setup instructions](https://github.com/matthew-jf/YT-Validator/blob/ch
 
 ### API Server
 
-Note: sudo privileges required to spawn the VPN client.
+Notes: 
+1. Requies sudo privileges to spawn the VPN client.
+2. Allow up to 8GB JS heap size to run safely `--max-old-space-size=8192"`
 
 ```shell
 export \
@@ -61,7 +63,7 @@ eg. `.vscode/launch.json`for debugging:
             "request": "launch",
             "name": "Dev (watch mode)",
             "runtimeExecutable": "sudo",
-            "runtimeArgs": [ "-E", "./node_modules/.bin/nodemon" ],
+            "runtimeArgs": [ "-E", "./node_modules/.bin/nodemon", "--max-old-space-size=8192" ],
             "program": "${workspaceFolder}/src/server.js",
             "restart": true,
             "envFile": "${workspaceFolder}/.env",

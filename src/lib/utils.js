@@ -23,3 +23,20 @@ module.exports.formatDuration = (ms) => {
 
 module.exports.generateRunFolderName = (startTime) => 
   format(startTime, process.env.EXPORT_FOLDER_NAME_FORMAT || 'yyyyMMddHHmmss');
+
+
+module.exports.readFile = async function (filePath, n = 2) {
+  const readline = require('readline');
+  const rl = readline.createInterface({
+    input: require('fs').createReadStream(filePath),
+    crlfDelay: Infinity
+  });
+  
+  const lines = [];
+  for await (const line of rl) {
+    lines.push(line);
+    if (lines.length === n) break;
+  }
+  rl.close();
+  return lines.join('\n');
+}

@@ -1,5 +1,6 @@
 const fs = require('fs').promises;
 const csv = require('csv-parse/sync');
+const { readFile } = require('../lib/utils');
 
 // Columns that currently exist in MySQL tables
 const VALID_COLUMNS = {
@@ -11,9 +12,10 @@ const VALID_COLUMNS = {
     'claim_policy_monetize', 'claim_policy_track', 'claim_policy_block',
     'asset_policy_monetize', 'asset_policy_track', 'asset_policy_block',
     'claim_created_date', 'video_upload_date', 'custom_id', 'video_duration_sec',
-    'asset_title', 'asset_labels', 'tms', 'director', 'studio', 'season',
+    'asset_title', 'asset_labels', 'tms', 'director', 'season',
     'episode_number', 'episode_title', 'release_date', 'hfa_song_code',
-    'isrc', 'grid', 'artist', 'album', 'record_label', 'upc', 'iswc', 'writers'
+    'isrc', 'grid', 'artist', 'album', 'record_label', 'upc', 'iswc', 'writers',
+    'engaged_views', 'video_matching_length', 'is_shorts_eligible'
   ],
   mcnVerdicts: [
     'video_id', 'verdict', 'media_component_id', 'language_id', 'wave', 'no_code'
@@ -45,12 +47,16 @@ async function validateInputCSVs(context) {
     for (const [source, filePath] of Object.entries(context.files.claims)) {
       if (!filePath) continue;
 
+      let csvContent = '';
       try {
-        const fileContent = await fs.readFile(filePath, 'utf8');
-        const lines = fileContent.split('\n').slice(0, 2);
-        const csvContent = lines.join('\n');
 
-        let rows = csv.parse(csvContent, { columns: true });
+        csvContent = await readFile(filePath);
+        let rows = csv.parse(csvContent, {
+          columns: true,
+          max_record_size: 50000000, // 50MB per record
+          relax_column_count: true
+        });
+
         if (rows.length === 0) {
           errors.push(`claims (${source}): File appears to be empty`);
           continue;
@@ -69,6 +75,8 @@ async function validateInputCSVs(context) {
 
       } catch (error) {
         errors.push(`claims (${source}): Failed to parse CSV - ${error.message}`);
+        console.error(`First 500 chars of content:`, csvContent.substring(0, 500));
+        console.error(`Error details:`, error);
       }
     }
   }
@@ -78,12 +86,15 @@ async function validateInputCSVs(context) {
     const filePath = context.files[fileType];
     if (!filePath) continue;
 
+    let csvContent = '';
     try {
-      const fileContent = await fs.readFile(filePath, 'utf8');
-      const lines = fileContent.split('\n').slice(0, 2);
-      const csvContent = lines.join('\n');
+      csvContent = await readFile(filePath);
 
-      let rows = csv.parse(csvContent, { columns: true });
+      let rows = csv.parse(csvContent, {
+        columns: true,
+        max_record_size: 50000000, // 50MB per record
+        relax_column_count: true
+      });
       if (rows.length === 0) {
         errors.push(`${fileType}: File appears to be empty`);
         continue;
@@ -101,6 +112,7 @@ async function validateInputCSVs(context) {
 
     } catch (error) {
       errors.push(`${fileType}: Failed to parse CSV - ${error.message}`);
+      console.error(`First 500 chars of content:`, csvContent.substring(0, 500));
     }
   }
 

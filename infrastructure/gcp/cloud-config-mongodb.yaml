@@ -22,3 +22,13 @@ runcmd:
 - systemctl daemon-reload
 - systemctl enable mongodb.service
 - systemctl start mongodb.service
+- |
+  # Install mongosh client
+  toolbox --bind /var/lib/toolbox:/var/lib/toolbox bash -c '
+    curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/mongodb-archive-keyring.gpg] http://repo.mongodb.org/apt/debian bullseye/mongodb-org/6.0 main" > /etc/apt/sources.list.d/mongodb-org-6.0.list
+    apt-get update
+    apt-get install -y mongodb-mongosh
+  '
+- echo 'alias mongosh="toolbox bash -c mongosh"' >> /root/.bashrc
+
