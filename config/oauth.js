@@ -1,4 +1,4 @@
-import { env } from '../src/env.js'
+import { env } from '../src/env/index.js'
 
 export const google = {
   clientId: env.GOOGLE_CLIENT_ID,

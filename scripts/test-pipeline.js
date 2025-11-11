@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url'
 
 import mysql from 'mysql2/promise'
 
-import { runPipeline } from '../src/pipeline.js'
+import { runPipeline } from '../src/pipeline/index.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)

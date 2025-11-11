@@ -2,11 +2,13 @@
   "name": "ytdt-claims-pipeline",
   "version": "1.0.0",
   "type": "module",
-  "main": "src/server.js",
+  "main": "src/server/server.js",
   "packageManager": "pnpm@10.21.0",
   "scripts": {
-    "start": "sudo -E node --max-old-space-size=8192 src/server.js",
-    "dev": "sudo -E nodemon --max-old-space-size=8192 src/server.js",
+    "start": "node --max-old-space-size=8192 src/server/index.js",
+    "dev": "nodemon --max-old-space-size=8192 src/server/index.js",
+    "test": "vitest",
+    "test:run": "vitest run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -39,7 +41,8 @@
     "husky": "^9.0.0",
     "lint-staged": "^15.2.0",
     "nodemon": "^3.0.1",
-    "prettier": "^3.3.0"
+    "prettier": "^3.3.0",
+    "vitest": "^2.1.0"
   },
   "lint-staged": {
     "*.{js,json}": [
