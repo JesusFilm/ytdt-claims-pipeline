@@ -5,6 +5,7 @@ dist/
 logs/
 
 .env*
+!.env.example
 .DS_Store
 .vscode/
 .eslintcache
