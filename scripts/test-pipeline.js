@@ -5,11 +5,17 @@
 sudo node test-pipeline.js [--skip-vpn]
 */
 
-require('dotenv').config()
-const fs = require('fs').promises
-const path = require('path')
+import 'dotenv/config'
+import fs from 'fs/promises'
+import path from 'path'
+import { fileURLToPath } from 'url'
 
-const { runPipeline } = require('../src/pipeline')
+import mysql from 'mysql2/promise'
+
+import { runPipeline } from '../src/pipeline.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // Create test CSV files
 async function createTestFiles() {
@@ -70,7 +76,6 @@ async function testSteps() {
   // Test 3: Test MySQL connection (without VPN for local testing)
   console.log('\n3. Testing MySQL connection...')
   if (process.env.MYSQL_HOST === 'localhost' || process.env.SKIP_VPN === 'true') {
-    const mysql = require('mysql2/promise')
     try {
       const connection = await mysql.createConnection({
         host: process.env.MYSQL_HOST,
@@ -167,6 +172,9 @@ process.on('unhandledRejection', (error) => {
 })
 
 // Run tests
-if (require.main === module) {
+const isMainModule =
+  import.meta.url === `file://${process.argv[1]}` ||
+  path.resolve(process.argv[1]) === path.resolve(__filename)
+if (isMainModule) {
   main()
 }
