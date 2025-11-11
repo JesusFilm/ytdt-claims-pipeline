@@ -5,7 +5,7 @@ import { ObjectId } from 'mongodb'
 
 import { getDatabase } from '../database.js'
 import { env } from '../env.js'
-import { createAuthedClient } from '../lib/authted-client.js'
+import { createAuthedClient } from '../lib/authed-client.js'
 
 /**
  * Enrich unprocessed claims via external ML service (e.g. YT-Validator)

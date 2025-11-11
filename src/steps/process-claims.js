@@ -1,6 +1,6 @@
 import { createReadStream } from 'fs'
 
-import csv from 'csv-parse'
+import { parse } from 'csv-parse'
 import { format } from 'date-fns'
 
 import { cleanRow } from '../lib/utils.js'
@@ -59,7 +59,7 @@ function parseCSV(filePath) {
   return new Promise((resolve, reject) => {
     const rows = []
     createReadStream(filePath)
-      .pipe(csv.parse({ columns: true, skip_empty_lines: true }))
+      .pipe(parse({ columns: true, skip_empty_lines: true }))
       .on('data', (row) => {
         rows.push(cleanRow(row))
       })

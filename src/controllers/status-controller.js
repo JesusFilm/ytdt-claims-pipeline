@@ -5,7 +5,7 @@ import { ObjectId } from 'mongodb'
 
 import { getDatabase } from '../database.js'
 import { env } from '../env.js'
-import { createAuthedClient } from '../lib/authted-client.js'
+import { createAuthedClient } from '../lib/authed-client.js'
 import { getOrCreateFolder, uploadFile } from '../lib/drive-upload.js'
 import { generateRunFolderName } from '../lib/utils.js'
 import { getCurrentPipelineStatus, syncRunState } from '../pipeline.js'
