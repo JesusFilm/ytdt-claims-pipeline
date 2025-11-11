@@ -11,7 +11,7 @@ const client = new OAuth2Client(
   googleConfig.redirectUri
 )
 
-async function getAuthUrl(req, res) {
+export async function getAuthUrl(req, res) {
   const authUrl = client.generateAuthUrl({
     access_type: 'offline',
     scope: googleConfig.scopes,
@@ -20,7 +20,7 @@ async function getAuthUrl(req, res) {
   res.json({ authUrl })
 }
 
-async function handleCallback(req, res) {
+export async function handleCallback(req, res) {
   const { code } = req.query
 
   if (!code) {
@@ -73,11 +73,11 @@ async function handleCallback(req, res) {
   }
 }
 
-async function logout(req, res) {
+export async function logout(req, res) {
   res.json({ message: 'Logged out successfully' })
 }
 
-async function getCurrentUser(req, res) {
+export async function getCurrentUser(req, res) {
   const db = getDatabase()
   const user = await db.collection('users').findOne({ googleId: req.user.userId })
 
@@ -92,5 +92,3 @@ async function getCurrentUser(req, res) {
     picture: user.picture,
   })
 }
-
-export { getAuthUrl, handleCallback, logout, getCurrentUser }

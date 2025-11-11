@@ -6,7 +6,7 @@ import { createAuthedClient } from '../lib/authted-client.js'
 import { syncRunState, runPipeline } from '../pipeline.js'
 
 // Get pipeline run history
-async function getHistory(req, res) {
+export async function getHistory(req, res) {
   try {
     const db = getDatabase()
     const collection = db.collection('pipeline_runs')
@@ -46,7 +46,7 @@ async function getHistory(req, res) {
 }
 
 // Retry a pipeline run
-async function retryRun(req, res) {
+export async function retryRun(req, res) {
   try {
     const db = getDatabase()
     const collection = db.collection('pipeline_runs')
@@ -97,7 +97,7 @@ async function retryRun(req, res) {
 }
 
 // Stop a pipeline run
-async function stopRun(req, res) {
+export async function stopRun(req, res) {
   try {
     const { id } = req.params
     const db = getDatabase()
@@ -161,5 +161,3 @@ async function stopRun(req, res) {
     res.status(500).json({ error: 'Failed to stop pipeline' })
   }
 }
-
-export { getHistory, retryRun, stopRun }

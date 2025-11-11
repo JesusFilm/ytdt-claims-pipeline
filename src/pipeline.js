@@ -83,7 +83,7 @@ function getPipelineSteps(files) {
 }
 
 // Main pipeline runner
-async function runPipeline(files, options = {}, existingRunId = null) {
+export async function runPipeline(files, options = {}, existingRunId = null) {
   const context = {
     files,
     options,
@@ -272,7 +272,7 @@ async function runPipeline(files, options = {}, existingRunId = null) {
 }
 
 // Get current pipeline status from MongoDB
-async function getCurrentPipelineStatus() {
+export async function getCurrentPipelineStatus() {
   try {
     const db = getDatabase()
     const collection = db.collection('pipeline_runs')
@@ -356,7 +356,7 @@ async function getCurrentPipelineStatus() {
 }
 
 // State manager - Centralizes all state checks and notifications.
-async function syncRunState(runId, completionData = {}) {
+export async function syncRunState(runId, completionData = {}) {
   const db = getDatabase()
   const run = await db.collection('pipeline_runs').findOne({ _id: runId })
 
@@ -435,7 +435,7 @@ async function syncRunState(runId, completionData = {}) {
 }
 
 // Check if a running pipeline has exceeded the timeout limit
-function checkTimeout(run) {
+export function checkTimeout(run) {
   const timeoutMs = env.PIPELINE_TIMEOUT_MINUTES * 60 * 1000
   const elapsed = Date.now() - new Date(run.startTime).getTime()
 
@@ -449,5 +449,3 @@ function formatStepName(stepName) {
   }
   return stepName.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 }
-
-export { runPipeline, getCurrentPipelineStatus, syncRunState, checkTimeout }

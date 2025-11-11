@@ -7,7 +7,7 @@ import { getDatabase } from '../database.js'
 import { generateRunFolderName } from '../lib/utils.js'
 
 // Download uploaded files
-async function downloadUpload(req, res) {
+export async function downloadUpload(req, res) {
   try {
     const filename = req.params.filename
 
@@ -39,7 +39,7 @@ async function downloadUpload(req, res) {
 }
 
 // Download exported files
-async function downloadExport(req, res) {
+export async function downloadExport(req, res) {
   try {
     const runId = req.params.runId
     const filename = req.params.filename
@@ -81,7 +81,7 @@ async function downloadExport(req, res) {
 }
 
 // List available export files
-async function listExports(req, res) {
+export async function listExports(req, res) {
   try {
     const runId = req.params.runId
 
@@ -120,5 +120,3 @@ async function listExports(req, res) {
     res.status(500).json({ error: 'Failed to list exports' })
   }
 }
-
-export { downloadUpload, downloadExport, listExports }

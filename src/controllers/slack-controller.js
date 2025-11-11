@@ -6,7 +6,7 @@ import { runPipeline } from '../pipeline.js'
 
 const SLACK_SIGNING_SECRET = env.SLACK_SIGNING_SECRET
 
-async function handleInteraction(req, res) {
+export async function handleInteraction(req, res) {
   console.log('Received Slack interaction')
 
   if (!SLACK_SIGNING_SECRET) {
@@ -48,5 +48,3 @@ async function handleInteraction(req, res) {
     res.json({ text: 'Unknown action' })
   }
 }
-
-export { handleInteraction }

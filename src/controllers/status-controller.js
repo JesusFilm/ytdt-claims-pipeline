@@ -12,7 +12,7 @@ import { getCurrentPipelineStatus, syncRunState } from '../pipeline.js'
 import { VERSION } from '../version.js'
 
 // Enhanced status with pipeline step details from MongoDB
-function getStatus(_pipelineStatus) {
+export function getStatus(_pipelineStatus) {
   return async (req, res) => {
     try {
       // Get real status from MongoDB instead of in-memory object
@@ -32,7 +32,7 @@ function getStatus(_pipelineStatus) {
 }
 
 // System health check - both this backend and ML service
-function getHealth(req, res) {
+export function getHealth(req, res) {
   const healthCheck = async () => {
     const health = {
       status: 'ok',
@@ -70,7 +70,7 @@ function getHealth(req, res) {
 
 // Save completion result from ML service
 // Update enrich_ml step status to completed (from "running")
-async function handleMLWebhook(req, res) {
+export async function handleMLWebhook(req, res) {
   try {
     const { task_id, status, error, csv_path, num_results, pipeline_run_id } = req.body
     console.log(
@@ -143,5 +143,3 @@ async function handleMLWebhook(req, res) {
     res.status(500).json({ error: 'Webhook processing failed' })
   }
 }
-
-export { getStatus, getHealth, handleMLWebhook }

@@ -5,7 +5,7 @@ import { env } from './env.js'
 let db = null
 let client = null
 
-async function connectToDatabase() {
+export async function connectToDatabase() {
   if (db) return db
 
   try {
@@ -44,7 +44,7 @@ async function createIndexes() {
   }
 }
 
-async function closeConnection() {
+export async function closeConnection() {
   if (client) {
     await client.close()
     client = null
@@ -53,11 +53,9 @@ async function closeConnection() {
   }
 }
 
-function getDatabase() {
+export function getDatabase() {
   if (!db) {
     throw new Error('Database not connected. Call connectToDatabase() first.')
   }
   return db
 }
-
-export { connectToDatabase, closeConnection, getDatabase }
