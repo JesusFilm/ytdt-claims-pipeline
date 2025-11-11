@@ -12,7 +12,6 @@ import processVerdicts from './steps/process-verdicts.js'
 import uploadDrive from './steps/upload-drive.js'
 import validateInputCSVs from './steps/validate-input-csvs.js'
 
-const PIPELINE_TIMEOUT_MINUTES = env.PIPELINE_TIMEOUT_MINUTES
 function getPipelineSteps(files) {
   return [
     {
@@ -374,10 +373,10 @@ async function syncRunState(runId, completionData = {}) {
   // Check for timeout
   if (run.status === 'running' && checkTimeout(run)) {
     updateFields.status = 'timeout'
-    updateFields.error = `Pipeline timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`
+    updateFields.error = `Pipeline timed out after ${env.PIPELINE_TIMEOUT_MINUTES} minutes`
     updateFields.endTime = new Date()
     updateFields.duration = Date.now() - new Date(run.startTime).getTime()
-    console.log(`Pipeline ${runId} timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`)
+    console.log(`Pipeline ${runId} timed out after ${env.PIPELINE_TIMEOUT_MINUTES} minutes`)
   }
   // Check if pipeline can be marked complete
   else {
@@ -413,7 +412,7 @@ async function syncRunState(runId, completionData = {}) {
     const finalStatus = updateFields.status || run.status
     if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'timeout') {
       try {
-        const { sendPipelineNotification } = await import('./lib/slackNotifier.js')
+        const { sendPipelineNotification } = await import('./lib/slack-notifier.js')
         await sendPipelineNotification(
           runId.toString(),
           finalStatus,
@@ -437,7 +436,7 @@ async function syncRunState(runId, completionData = {}) {
 
 // Check if a running pipeline has exceeded the timeout limit
 function checkTimeout(run) {
-  const timeoutMs = PIPELINE_TIMEOUT_MINUTES * 60 * 1000
+  const timeoutMs = env.PIPELINE_TIMEOUT_MINUTES * 60 * 1000
   const elapsed = Date.now() - new Date(run.startTime).getTime()
 
   return elapsed > timeoutMs

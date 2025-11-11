@@ -1,11 +1,11 @@
 import { createReadStream } from 'fs'
 
-import FormData from 'form-data'
+import FormData from 'form-data/lib/form_data.js'
 import { ObjectId } from 'mongodb'
 
 import { getDatabase } from '../database.js'
 import { env } from '../env.js'
-import { createAuthedClient } from '../lib/authtedClient.js'
+import { createAuthedClient } from '../lib/authted-client.js'
 
 /**
  * Enrich unprocessed claims via external ML service (e.g. YT-Validator)

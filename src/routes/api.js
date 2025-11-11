@@ -1,9 +1,9 @@
 import express from 'express'
 
-import * as exportsController from '../controllers/exportsController.js'
-import * as historyController from '../controllers/historyController.js'
-import * as slackController from '../controllers/slackController.js'
-import * as statusController from '../controllers/statusController.js'
+import * as exportsController from '../controllers/exports-controller.js'
+import * as historyController from '../controllers/history-controller.js'
+import * as slackController from '../controllers/slack-controller.js'
+import * as statusController from '../controllers/status-controller.js'
 
 export function createApiRoutes(pipelineStatus) {
   const router = express.Router()

@@ -1,5 +1,5 @@
 import { env } from '../env.js'
-import { getOrCreateFolder, uploadFileWithFallback } from '../lib/driveUpload.js'
+import { getOrCreateFolder, uploadFileWithFallback } from '../lib/drive-upload.js'
 import { generateRunFolderName } from '../lib/utils.js'
 
 export default async function uploadDrive(context) {

@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb'
 
 import { getDatabase } from '../database.js'
 import { env } from '../env.js'
-import { createAuthedClient } from '../lib/authtedClient.js'
+import { createAuthedClient } from '../lib/authted-client.js'
 import { syncRunState, runPipeline } from '../pipeline.js'
 
 // Get pipeline run history

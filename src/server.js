@@ -3,7 +3,7 @@ import cors from 'cors'
 import express from 'express'
 import multer from 'multer'
 
-import { handleMLWebhook, getHealth } from './controllers/statusController.js'
+import { handleMLWebhook, getHealth } from './controllers/status-controller.js'
 import { connectToDatabase, closeConnection } from './database.js'
 import { env } from './env.js'
 import { authenticateRequest } from './middleware/auth.js'
