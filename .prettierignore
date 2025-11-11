@@ -1,0 +1,8 @@
+node_modules/
+dist/
+logs/
+data/uploads/
+data/exports/
+pnpm-lock.yaml
+yarn.lock
+

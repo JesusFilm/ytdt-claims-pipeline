@@ -35,7 +35,7 @@ def456,N,MC002,1818,2,`;
 
   return {
     claims: claimsPath,
-    mcnVerdicts: mcnVerdictsPath
+    mcnVerdicts: mcnVerdictsPath,
   };
 }
 
@@ -46,8 +46,8 @@ async function testSteps() {
   // Test 1: Check environment variables
   console.log('1. Checking environment variables...');
   const requiredEnvs = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
-  const missingEnvs = requiredEnvs.filter(env => !process.env[env]);
-  
+  const missingEnvs = requiredEnvs.filter((env) => !process.env[env]);
+
   if (missingEnvs.length > 0) {
     console.error('❌ Missing environment variables:', missingEnvs);
     console.log('   Please check your .env file');
@@ -61,7 +61,7 @@ async function testSteps() {
   try {
     await fs.access(vpnConfigPath);
     console.log('✓ VPN config file found');
-  } catch (error) {
+  } catch {
     console.error('❌ VPN config not found at:', vpnConfigPath);
     console.log('   You can skip VPN for testing by commenting out the connect_vpn step');
   }
@@ -75,9 +75,9 @@ async function testSteps() {
         host: process.env.MYSQL_HOST,
         user: process.env.MYSQL_USER,
         password: process.env.MYSQL_PASSWORD,
-        database: process.env.MYSQL_DATABASE
+        database: process.env.MYSQL_DATABASE,
       });
-      
+
       const [rows] = await connection.execute('SELECT 1 as test');
       console.log('✓ MySQL connection successful:', rows[0]);
       await connection.end();
@@ -95,30 +95,29 @@ async function testSteps() {
 // Run full pipeline test
 async function testFullPipeline() {
   console.log('\n=== Testing Full Pipeline ===\n');
-  
+
   try {
     // Create test files
     const testFiles = await createTestFiles();
-    
+
     // Prepare test context
     const files = {
       claims: testFiles.claims,
       claimsSource: 'test_source',
       mcnVerdicts: testFiles.mcnVerdicts,
-      jfmVerdicts: null
+      jfmVerdicts: null,
     };
 
     console.log('\nStarting pipeline with test files...\n');
-    
+
     // Run pipeline
-    const result = await runPipeline(files, { 
+    const result = await runPipeline(files, {
       skipVPN: process.env.SKIP_VPN === 'true',
-      testMode: true 
+      testMode: true,
     });
 
     console.log('\n✅ Pipeline completed successfully!');
     console.log('Result:', JSON.stringify(result, null, 2));
-
   } catch (error) {
     console.error('\n❌ Pipeline failed:', error.message);
     console.error('Stack:', error.stack);
@@ -138,7 +137,7 @@ async function main() {
 
   // Run tests
   const stepsOk = await testSteps();
-  
+
   if (!stepsOk) {
     console.log('\n⚠ Fix the issues above before running the full pipeline');
     process.exit(1);
@@ -149,13 +148,13 @@ async function main() {
   console.log('Ready to test full pipeline?');
   console.log('This will create test data in your database.');
   console.log('Press Ctrl+C to cancel, or Enter to continue...');
-  
-  await new Promise(resolve => {
+
+  await new Promise((resolve) => {
     process.stdin.once('data', resolve);
   });
 
   await testFullPipeline();
-  
+
   console.log('\nTest complete!');
   process.exit(0);
 }

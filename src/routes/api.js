@@ -4,7 +4,6 @@ const exportsController = require('../controllers/exportsController');
 const statusController = require('../controllers/statusController');
 const slackController = require('../controllers/slackController');
 
-
 function createApiRoutes(pipelineStatus) {
   const router = express.Router();
 
@@ -13,7 +12,7 @@ function createApiRoutes(pipelineStatus) {
   router.post('/runs/:id/retry', historyController.retryRun);
   router.post('/runs/:id/stop', historyController.stopRun);
 
-  // Download routes  
+  // Download routes
   router.get('/uploads/:filename', exportsController.downloadUpload);
   router.get('/exports/run/:runId', exportsController.listExports);
   router.get('/exports/run/:runId/:filename', exportsController.downloadExport);

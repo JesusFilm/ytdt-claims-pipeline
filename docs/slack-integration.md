@@ -3,6 +3,7 @@
 ## Required Permissions
 
 ### Bot Token Scopes
+
 - `chat:write` - Post messages to channels
 - `chat:write.public` - Post to channels without joining
 
@@ -54,6 +55,7 @@ SLACK_CHANNEL=#youtube-data-chat
 ### 7. Invite Bot to Channel
 
 In Slack:
+
 1. Go to your target channel (`#youtube-data-chat`)
 2. Type `/invite @Pipeline Notifier`
 
@@ -62,6 +64,7 @@ Or the bot will auto-post using `chat:write.public` scope.
 ## Testing
 
 Trigger a failed pipeline run and verify:
+
 1. Message appears in configured channel
 2. "Rerun Pipeline" button is visible
 3. Clicking button triggers rerun
@@ -69,23 +72,26 @@ Trigger a failed pipeline run and verify:
 ## Troubleshooting
 
 **"Invalid signature" errors:**
+
 - Verify `SLACK_SIGNING_SECRET` is correct
 - Check system clock is synchronized
 
 **Messages not appearing:**
+
 - Verify `SLACK_BOT_TOKEN` is correct
 - Check bot has required scopes
 - Ensure channel name includes `#` prefix
 
 **Button clicks not working:**
+
 - Verify Request URL is publicly accessible
 - Check backend logs for errors
 - Ensure HTTPS is used (Slack requires HTTPS)
 
-**Delete Bots's own messages:** 
+**Delete Bots's own messages:**
 
 Extract from bot message url eg. `https://jfp-digital.slack.com/archives/C09KPF83TBJ/p1759959559103239`,
-the message timestamp and channel ID as `1759959559.103239` and  `C09KPF83TBJ` resp.
+the message timestamp and channel ID as `1759959559.103239` and `C09KPF83TBJ` resp.
 
 ```shell
 curl -X POST https://slack.com/api/chat.delete \
@@ -96,4 +102,3 @@ curl -X POST https://slack.com/api/chat.delete \
     "ts": "1759959559.103239"
   }'
 ```
-

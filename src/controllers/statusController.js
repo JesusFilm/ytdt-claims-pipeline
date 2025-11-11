@@ -1,6 +1,4 @@
-
 const { ObjectId } = require('mongodb');
-const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 
@@ -10,9 +8,8 @@ const { getOrCreateFolder, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
 
-
 // Enhanced status with pipeline step details from MongoDB
-function getStatus(pipelineStatus) {
+function getStatus(_pipelineStatus) {
   return async (req, res) => {
     try {
       // Get real status from MongoDB instead of in-memory object
@@ -20,7 +17,7 @@ function getStatus(pipelineStatus) {
 
       const enhancedStatus = {
         ...dbStatus,
-        uptime: process.uptime()
+        uptime: process.uptime(),
       };
 
       res.json(enhancedStatus);
@@ -33,7 +30,6 @@ function getStatus(pipelineStatus) {
 
 // System health check - both this backend and ML service
 function getHealth(req, res) {
-
   const healthCheck = async () => {
     const health = {
       status: 'ok',
@@ -41,9 +37,9 @@ function getHealth(req, res) {
       uptime: Math.round(process.uptime()),
       memory: {
         used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
       },
-      version: process.env.npm_package_version || '1.0.0'
+      version: process.env.npm_package_version || '1.0.0',
     };
 
     // Check ML service
@@ -51,8 +47,7 @@ function getHealth(req, res) {
       const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT, { timeout: 5000 });
       await mlClient.get('/health');
       health.enrich_ml_status = 'healthy';
-
-    } catch (error) {
+    } catch {
       health.enrich_ml_status = 'unhealthy';
       health.status = 'degraded';
     }
@@ -61,36 +56,40 @@ function getHealth(req, res) {
   };
 
   healthCheck()
-    .then(health => res.json(health))
-    .catch(error => {
+    .then((health) => res.json(health))
+    .catch((error) => {
       console.error('Health check failed:', error);
       res.status(500).json({ status: 'error', uptime: 0, memory: { used: 0, total: 0 } });
     });
 }
 
-// Save completion result from ML service 
+// Save completion result from ML service
 // Update enrich_ml step status to completed (from "running")
 async function handleMLWebhook(req, res) {
   try {
-
     const { task_id, status, error, csv_path, num_results, pipeline_run_id } = req.body;
-    console.log(`ML webhook received: '${status}' for task ${task_id}, pipeline_run_id: ${pipeline_run_id}`);
+    console.log(
+      `ML webhook received: '${status}' for task ${task_id}, pipeline_run_id: ${pipeline_run_id}`
+    );
 
     const db = getDatabase();
 
     // Find enrich_ml step to calculate duration
-    const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(pipeline_run_id) });
-    const enrichStep = run?.startedSteps?.find(s => s.name === 'enrich_ml');
-    const duration = enrichStep?.timestamp ? Date.now() - new Date(enrichStep.timestamp).getTime() : 0;
-    const folderName = generateRunFolderName(run.startTime);;
-    const fileName = `unprocessed_claims_${enrichStep.name}.csv`
+    const run = await db
+      .collection('pipeline_runs')
+      .findOne({ _id: new ObjectId(pipeline_run_id) });
+    const enrichStep = run?.startedSteps?.find((s) => s.name === 'enrich_ml');
+    const duration = enrichStep?.timestamp
+      ? Date.now() - new Date(enrichStep.timestamp).getTime()
+      : 0;
+    const folderName = generateRunFolderName(run.startTime);
+    const fileName = `unprocessed_claims_${enrichStep.name}.csv`;
     const fullCsvUrl = path.join(process.env.ML_API_ENDPOINT, csv_path);
 
     // Upload CSV to Drive if successful and Drive is configured
     let driveUpload = null;
     if (status === 'completed' && csv_path && process.env.GOOGLE_DRIVE_NAME) {
       try {
-
         // Download CSV file from ML service locally
         const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT);
         const response = await mlClient.get(csv_path, { responseType: 'stream' });
@@ -107,7 +106,6 @@ async function handleMLWebhook(req, res) {
         const folderId = await getOrCreateFolder(folderName, process.env.GOOGLE_DRIVE_NAME);
         driveUpload = await uploadFile(tempPath, folderId, num_results);
         console.log(`ML result uploaded to Drive: ${driveUpload.path}`);
-
       } catch (uploadError) {
         console.error('Drive upload failed:', uploadError.message);
       }
@@ -129,21 +127,19 @@ async function handleMLWebhook(req, res) {
             updated_at: new Date(),
           },
           'startedSteps.$[elem].status': 'completed',
-          'startedSteps.$[elem].duration': duration
-        }
+          'startedSteps.$[elem].duration': duration,
+        },
       },
       { arrayFilters: [{ 'elem.name': 'enrich_ml' }] }
     );
 
     await syncRunState(new ObjectId(pipeline_run_id));
     res.json({ received: true, pipeline_run_id });
-
   } catch (error) {
     console.error('ML webhook error:', error);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 }
-
 
 module.exports = {
   getStatus,

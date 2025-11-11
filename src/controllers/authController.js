@@ -3,7 +3,6 @@ const { google: googleConfig } = require('../../config/oauth');
 const { generateToken } = require('../middleware/auth');
 const { getDatabase } = require('../database');
 
-
 const client = new OAuth2Client(
   googleConfig.clientId,
   googleConfig.clientSecret,
@@ -32,14 +31,19 @@ async function handleCallback(req, res) {
 
     const ticket = await client.verifyIdToken({
       idToken: tokens.id_token,
-      audience: googleConfig.clientId
+      audience: googleConfig.clientId,
     });
 
     const payload = ticket.getPayload();
 
     // Verify Workspace domain
-    if (googleConfig.allowedDomains.length > 0 && !googleConfig.allowedDomains.includes(payload.hd)) {
-      return res.status(403).json({ error: `Unauthorized domain: ${payload.hd}. Allowed: ${googleConfig.allowedDomains}` });
+    if (
+      googleConfig.allowedDomains.length > 0 &&
+      !googleConfig.allowedDomains.includes(payload.hd)
+    ) {
+      return res.status(403).json({
+        error: `Unauthorized domain: ${payload.hd}. Allowed: ${googleConfig.allowedDomains}`,
+      });
     }
 
     // Store or update user
@@ -52,20 +56,15 @@ async function handleCallback(req, res) {
       name: payload.name,
       picture: payload.picture,
       domain: payload.hd,
-      lastLogin: new Date()
+      lastLogin: new Date(),
     };
 
-    await usersCollection.updateOne(
-      { googleId: payload.sub },
-      { $set: user },
-      { upsert: true }
-    );
+    await usersCollection.updateOne({ googleId: payload.sub }, { $set: user }, { upsert: true });
 
     const jwtToken = generateToken({ id: payload.sub, email: payload.email });
 
     // Redirect to frontend with token
     res.redirect(`${process.env.FRONTEND_URL}?token=${jwtToken}`);
-
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.status(500).json({ error: 'Authentication failed' });
@@ -88,7 +87,7 @@ async function getCurrentUser(req, res) {
     id: user.googleId,
     email: user.email,
     name: user.name,
-    picture: user.picture
+    picture: user.picture,
   });
 }
 

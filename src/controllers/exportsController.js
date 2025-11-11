@@ -4,7 +4,6 @@ const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
 const { generateRunFolderName } = require('../lib/utils');
 
-
 // Download uploaded files
 async function downloadUpload(req, res) {
   try {
@@ -29,7 +28,6 @@ async function downloadUpload(req, res) {
         }
       }
     });
-
   } catch (error) {
     console.error('Upload download error:', error);
     if (!res.headersSent) {
@@ -41,7 +39,6 @@ async function downloadUpload(req, res) {
 // Download exported files
 async function downloadExport(req, res) {
   try {
-
     const runId = req.params.runId;
     const filename = req.params.filename;
 
@@ -53,7 +50,9 @@ async function downloadExport(req, res) {
     // Get run from database
     const db = getDatabase();
     const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
-    if (!run) { return res.status(404).json({ error: 'Run not found' }); }    
+    if (!run) {
+      return res.status(404).json({ error: 'Run not found' });
+    }
 
     // Build folder name and file path
     const folderName = generateRunFolderName(run.startTime);
@@ -71,7 +70,6 @@ async function downloadExport(req, res) {
         }
       }
     });
-
   } catch (error) {
     console.error('Export download error:', error);
     if (!res.headersSent) {
@@ -83,13 +81,14 @@ async function downloadExport(req, res) {
 // List available export files
 async function listExports(req, res) {
   try {
-
     const runId = req.params.runId;
 
     // Get run from database
     const db = getDatabase();
     const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
-    if (!run) { return res.status(404).json({ error: 'Run not found' }); }
+    if (!run) {
+      return res.status(404).json({ error: 'Run not found' });
+    }
 
     // Build folder name from run startTime
     const folderName = generateRunFolderName(run.startTime);
@@ -97,7 +96,7 @@ async function listExports(req, res) {
 
     const files = await fs.readdir(exportsDir);
     const csvFiles = files
-      .filter(file => file.endsWith('.csv'))
+      .filter((file) => file.endsWith('.csv'))
       .map(async (file) => {
         const filePath = path.join(exportsDir, file);
         const stats = await fs.stat(filePath);
@@ -105,16 +104,15 @@ async function listExports(req, res) {
           name: file,
           size: stats.size,
           created: stats.birthtime,
-          modified: stats.mtime
+          modified: stats.mtime,
         };
       });
 
     const fileList = await Promise.all(csvFiles);
 
     res.json({
-      files: fileList.sort((a, b) => b.modified - a.modified)
+      files: fileList.sort((a, b) => b.modified - a.modified),
     });
-
   } catch (error) {
     console.error('List exports error:', error);
     res.status(500).json({ error: 'Failed to list exports' });
@@ -124,5 +122,5 @@ async function listExports(req, res) {
 module.exports = {
   downloadUpload,
   downloadExport,
-  listExports
+  listExports,
 };

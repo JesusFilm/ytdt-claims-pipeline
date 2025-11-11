@@ -4,7 +4,6 @@ const { runPipeline } = require('../pipeline');
 
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 
-
 async function handleInteraction(req, res) {
   console.log('Received Slack interaction');
 
@@ -22,7 +21,7 @@ async function handleInteraction(req, res) {
     try {
       const db = getDatabase();
       const run = await db.collection('pipeline_runs').findOne({
-        _id: new ObjectId(runId)
+        _id: new ObjectId(runId),
       });
 
       if (!run) {
@@ -32,14 +31,13 @@ async function handleInteraction(req, res) {
       // Acknowledge immediately
       res.json({
         text: `Rerunning pipeline...`,
-        replace_original: false
+        replace_original: false,
       });
 
       // Trigger rerun asynchronously
-      runPipeline(run.files, {}, runId).catch(err => {
+      runPipeline(run.files, {}, runId).catch((err) => {
         console.error('Pipeline rerun failed:', err);
       });
-
     } catch (err) {
       console.error('Interaction error:', err);
       return res.json({ text: 'Failed to rerun pipeline' });

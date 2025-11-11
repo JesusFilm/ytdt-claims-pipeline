@@ -1,5 +1,4 @@
-const axios = require('axios');
-const FormData = require("form-data");
+const FormData = require('form-data');
 const fs = require('fs');
 const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
@@ -12,7 +11,6 @@ const { createAuthedClient } = require('../lib/authtedClient');
  * The ML service will call back our webhook when done.
  */
 async function enrichML(context) {
-
   const unprocessedPath = context.outputs.exports?.export_unprocessed_claims?.path;
   if (!unprocessedPath) {
     console.log('No unprocessed claims to enrich');
@@ -20,14 +18,13 @@ async function enrichML(context) {
   }
 
   try {
-
     if (!process.env.ML_API_ENDPOINT) {
       throw new Error('ML enrichment disabled: ML_API_ENDPOINT environment variable not set');
     }
     const formData = new FormData();
     formData.append('file', fs.createReadStream(unprocessedPath));
     formData.append('webhook_url', `${process.env.BASE_URL}/api/ml-webhook`);
-    formData.append('pipeline_run_id', context.runId);  // TODO: make required ?
+    formData.append('pipeline_run_id', context.runId); // TODO: make required ?
     formData.append('skip_validation', String(true));
 
     // Configure axios with 30s timeout and retry logic
@@ -47,13 +44,12 @@ async function enrichML(context) {
         {
           $set: {
             'results.mlEnrichment.task_id': response.data.task_id,
-            'results.mlEnrichment.started_at': new Date()
-          }
+            'results.mlEnrichment.started_at': new Date(),
+          },
         }
       );
     }
-    return response.data
-
+    return response.data;
   } catch (error) {
     // Handle axios-specific errors
     if (error.code === 'ECONNABORTED') {
@@ -61,7 +57,9 @@ async function enrichML(context) {
       throw new Error(`ML enrichment failed: Request timed out after ${error.config.timeout}ms`);
     } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
       // Endpoint down or unreachable
-      throw new Error(`ML enrichment failed: Endpoint ${process.env.ML_API_ENDPOINT} is down or unreachable (${error.code})`);
+      throw new Error(
+        `ML enrichment failed: Endpoint ${process.env.ML_API_ENDPOINT} is down or unreachable (${error.code})`
+      );
     } else if (error.response) {
       // HTTP error (e.g., 500, 503)
       const status = error.response.status;

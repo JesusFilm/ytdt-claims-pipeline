@@ -7,7 +7,7 @@ const { createApiRoutes } = require('./routes/api');
 const { connectToDatabase, closeConnection } = require('./database');
 const { createAuthRoutes } = require('./routes/auth');
 const { authenticateRequest } = require('./middleware/auth');
-const { handleMLWebhook } = require('./controllers/statusController')
+const { handleMLWebhook } = require('./controllers/statusController');
 const { getHealth } = require('./controllers/statusController');
 
 const app = express();
@@ -15,13 +15,13 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(express.urlencoded({ extended: true })); 
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // File upload config
 const upload = multer({
   dest: 'data/uploads/',
-  limits: { fileSize: 1024 * 1024 * 5000 } // 5GB
+  limits: { fileSize: 1024 * 1024 * 5000 }, // 5GB
 });
 
 // Store current pipeline status
@@ -29,7 +29,7 @@ let pipelineStatus = {
   running: false,
   status: 'idle',
   startTime: null,
-  error: null
+  error: null,
 };
 
 // Initialize database connection
@@ -44,29 +44,29 @@ async function initializeApp() {
 }
 
 // Main pipeline endpoint
-app.post('/api/run',
+app.post(
+  '/api/run',
   upload.fields([
     { name: 'claims_matter_entertainment', maxCount: 1 },
     { name: 'claims_matter_2', maxCount: 1 },
     { name: 'mcn_verdicts', maxCount: 1 },
-    { name: 'jfm_verdicts', maxCount: 1 }
+    { name: 'jfm_verdicts', maxCount: 1 },
   ]),
   async (req, res) => {
-
     if (pipelineStatus.running) {
       return res.status(409).json({
         error: 'Pipeline already running',
-        status: pipelineStatus.status
+        status: pipelineStatus.status,
       });
     }
 
     const files = {
       claims: {
         matter_entertainment: req.files.claims_matter_entertainment?.[0]?.path,
-        matter_2: req.files.claims_matter_2?.[0]?.path
+        matter_2: req.files.claims_matter_2?.[0]?.path,
       },
       mcnVerdicts: req.files.mcn_verdicts?.[0]?.path,
-      jfmVerdicts: req.files.jfm_verdicts?.[0]?.path
+      jfmVerdicts: req.files.jfm_verdicts?.[0]?.path,
     };
 
     // Start pipeline
@@ -74,7 +74,7 @@ app.post('/api/run',
       running: true,
       status: 'starting',
       startTime: Date.now(),
-      error: null
+      error: null,
     };
 
     // Run pipeline in background
@@ -85,7 +85,7 @@ app.post('/api/run',
           status: 'completed',
           startTime: null,
           error: null,
-          result
+          result,
         };
       })
       .catch(async (error) => {
@@ -93,7 +93,7 @@ app.post('/api/run',
           running: false,
           status: 'failed',
           startTime: null,
-          error: error.message
+          error: error.message,
         };
       });
 
@@ -103,12 +103,13 @@ app.post('/api/run',
         claims_matter_entertainment: req.files.claims_matter_entertainment?.[0]?.originalname,
         claims_matter_2: req.files.claims_matter_2?.[0]?.originalname,
         mcnVerdicts: req.files.mcn_verdicts?.[0]?.originalname,
-        jfmVerdicts: req.files.jfm_verdicts?.[0]?.originalname
-      }
+        jfmVerdicts: req.files.jfm_verdicts?.[0]?.originalname,
+      },
     });
-  });
+  }
+);
 
-// Mount public routes (server-to-server callback, health check)   
+// Mount public routes (server-to-server callback, health check)
 app.post('/api/ml-webhook', handleMLWebhook);
 app.get('/api/health', getHealth);
 

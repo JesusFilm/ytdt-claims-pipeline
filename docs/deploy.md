@@ -2,7 +2,7 @@
 
 ## Overview
 
-This deployment uses **local source code** and **local configuration** - no GitHub, no Secret Manager. 
+This deployment uses **local source code** and **local configuration** - no GitHub, no Secret Manager.
 
 The deploy script (`infrastructure/gcp/deploy.sh`):
 
@@ -35,7 +35,7 @@ All secrets and configuration come from `.env.production`.
 ## Prerequisites
 
 - `gcloud` CLI installed and authenticated
-- `.env.production` file with **all** required environment variables including secrets 
+- `.env.production` file with **all** required environment variables including secrets
   from both `ytdy-claims-pipeline` (see `src/.env.example`) and `YT-Validator`.
 - `config/` directory with:
   - `config/vpn/client.ovpn` (VPN configuration)
@@ -60,7 +60,7 @@ export LETSENCRYPT_STAGING="--staging"
 
 ### Verifying Configuration
 
-* View the configuration used in last deployment:
+- View the configuration used in last deployment:
 
 ```bash
 # SSH to VM
@@ -68,7 +68,7 @@ gcloud compute instances describe ytdt-claims --zone=us-east1-b \
   --format='table(metadata.items:format="table(key,value)")'
 ```
 
-* After deployment, check the setup used:
+- After deployment, check the setup used:
 
 ```bash
 gcloud compute ssh ytdt-claims --zone=us-east1-b
@@ -92,6 +92,7 @@ git branch
 ### Editing Configuration
 
 The VM metadata is set at creation time. To change:
+
 1. Delete the VM: `gcloud compute instances delete ytdt-claims --zone=us-east1-b`
 2. Set new environment variables
 3. Redeploy: `./infrastructure/gcp/deploy.sh`
@@ -105,38 +106,45 @@ The VM metadata is set at creation time. To change:
 SSH into the VM and run these commands:
 
 1. Check current status
+
 ```bash
 gcloud compute ssh ytdt-claims --zone=us-east1-b
 ```
 
 2. View full cloud-init log to see where setup failed
+
 ```bash
 sudo cat /var/log/cloud-init-output.log | tail -100
 ```
 
 3. Check if Docker was installed
+
 ```bash
 docker --version
 sudo systemctl status docker
 ```
 
 4. Check if setup script completed
+
 ```bash
 sudo journalctl -u cloud-final -n 100
 ```
 
 5. If Docker is missing, the setup script failed early. Run it manually:
+
 ```bash
 sudo /usr/local/bin/setup-vm.sh
 ```
 
 6. After setup completes, check service status:
+
 ```bash
 sudo systemctl status ytdt-claims-pipeline
 sudo systemctl status yt-validator
 ```
 
 7. If services still fail, check their logs:
+
 ```bash
 sudo journalctl -u ytdt-claims-pipeline -n 50
 sudo journalctl -u yt-validator -n 50

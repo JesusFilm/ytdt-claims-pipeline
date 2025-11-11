@@ -11,64 +11,74 @@ const uploadDrive = require('./steps/upload-drive');
 const { getDatabase } = require('./database');
 const { ObjectId } = require('mongodb');
 
-
 const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
 function getPipelineSteps(files) {
   return [
     {
-      name: 'connect_vpn', fn: connectVPN,
+      name: 'connect_vpn',
+      fn: connectVPN,
       title: 'Connect VPN',
-      description: 'Establishes secure VPN connection to access remote database and services'
+      description: 'Establishes secure VPN connection to access remote database and services',
     },
     {
-      name: 'validate_input_csvs', fn: validateInputCSVs,
+      name: 'validate_input_csvs',
+      fn: validateInputCSVs,
       title: 'Validate Input CSVs',
-      description: 'Validates uploaded CSV files for required columns and data integrity'
+      description: 'Validates uploaded CSV files for required columns and data integrity',
     },
     {
-      name: 'backup_tables', fn: backupTables,
+      name: 'backup_tables',
+      fn: backupTables,
       title: 'Backup Tables',
-      description: 'Creates backup copies of database tables before processing'
+      description: 'Creates backup copies of database tables before processing',
     },
     {
-      name: 'process_claims_matter_entertainment', 
-      fn: (ctx) => processClaims(ctx, 'matter_entertainment'), 
+      name: 'process_claims_matter_entertainment',
+      fn: (ctx) => processClaims(ctx, 'matter_entertainment'),
       condition: () => !!files.claims?.matter_entertainment,
       title: 'Process Claims (Matter Entertainment)',
-      description: 'Imports and processes Matter Entertainment MCN claims'
+      description: 'Imports and processes Matter Entertainment MCN claims',
     },
     {
-      name: 'process_claims_matter_2', 
-      fn: (ctx) => processClaims(ctx, 'matter_2'), 
+      name: 'process_claims_matter_2',
+      fn: (ctx) => processClaims(ctx, 'matter_2'),
       condition: () => !!files.claims?.matter_2,
       title: 'Process Claims (Matter 2)',
-      description: 'Imports and processes Matter 2 MCN claims'
+      description: 'Imports and processes Matter 2 MCN claims',
     },
     {
-      name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts,
+      name: 'process_mcn_verdicts',
+      fn: processVerdicts,
+      condition: () => !!files.mcnVerdicts,
       title: 'Process MCN Verdicts',
-      description: 'Imports MCN verdict decisions and updates claim records accordingly'
+      description: 'Imports MCN verdict decisions and updates claim records accordingly',
     },
     {
-      name: 'process_jfm_verdicts', fn: processVerdicts, condition: () => !!files.jfmVerdicts,
+      name: 'process_jfm_verdicts',
+      fn: processVerdicts,
+      condition: () => !!files.jfmVerdicts,
       title: 'Process JFM Verdicts',
-      description: 'Imports JFM verdict decisions and updates video ownership records'
+      description: 'Imports JFM verdict decisions and updates video ownership records',
     },
     {
-      name: 'export_views', fn: exportViews,
+      name: 'export_views',
+      fn: exportViews,
       title: 'Export Views',
-      description: 'Generates CSV exports of processed claims, owned videos, and unprocessed data'
+      description: 'Generates CSV exports of processed claims, owned videos, and unprocessed data',
     },
     {
-      name: 'enrich_ml', fn: enrichML, condition: () => process.env.GOOGLE_DRIVE_NAME,
+      name: 'enrich_ml',
+      fn: enrichML,
+      condition: () => process.env.GOOGLE_DRIVE_NAME,
       title: 'Enrich ML',
-      description: 'Sends unprocessed claims to ML service for verdict probability predictions'
+      description: 'Sends unprocessed claims to ML service for verdict probability predictions',
     },
     {
-      name: 'upload_drive', fn: uploadDrive,
+      name: 'upload_drive',
+      fn: uploadDrive,
       title: 'Upload Drive',
-      description: 'Uploads generated exports and ML results to Google Drive for review'
-    }
+      description: 'Uploads generated exports and ML results to Google Drive for review',
+    },
   ];
 }
 
@@ -80,13 +90,12 @@ async function runPipeline(files, options = {}, existingRunId = null) {
     connections: {},
     outputs: {},
     status: 'starting',
-    startTime: Date.now()
+    startTime: Date.now(),
   };
 
   let runId = null;
 
   try {
-
     // Create initial run record
     const db = getDatabase();
     const collection = db.collection('pipeline_runs');
@@ -98,7 +107,7 @@ async function runPipeline(files, options = {}, existingRunId = null) {
       files: files,
       startTime: new Date(),
       error: null,
-      endTime: null
+      endTime: null,
     };
 
     if (existingRunId) {
@@ -106,13 +115,9 @@ async function runPipeline(files, options = {}, existingRunId = null) {
       context.runId = runId.toString();
 
       // Update existing run for retry
-      await collection.updateOne(
-        { _id: runId },
-        { $set: initialRun }
-      );
+      await collection.updateOne({ _id: runId }, { $set: initialRun });
 
       console.log(`Pipeline retry started with existing ID: ${runId}`);
-
     } else {
       // Create new run record
       const result = await collection.insertOne(initialRun);
@@ -123,7 +128,6 @@ async function runPipeline(files, options = {}, existingRunId = null) {
 
     const steps = getPipelineSteps(files);
     for (const step of steps) {
-
       // Check if pipeline was stopped
       const currentRun = await collection.findOne({ _id: runId });
       if (currentRun.status === 'stopped') {
@@ -152,9 +156,9 @@ async function runPipeline(files, options = {}, existingRunId = null) {
                 title: step.title,
                 description: step.description,
                 status: 'skipped',
-                timestamp: new Date()
-              }
-            }
+                timestamp: new Date(),
+              },
+            },
           }
         );
         continue;
@@ -163,19 +167,15 @@ async function runPipeline(files, options = {}, existingRunId = null) {
       console.log(`Running ${step.name}...`);
 
       // Update DB - step starting
-      await collection.updateOne(
-        { _id: runId },
-        { $set: { currentStep: step.name } }
-      );
+      await collection.updateOne({ _id: runId }, { $set: { currentStep: step.name } });
 
       context.status = step.name;
       const stepStartTime = Date.now();
 
       try {
-
         // Run and extract step completion status
         const result = await step.fn(context);
-        const status = Object.keys(result || {}).length ? result.status : 'completed'
+        const status = Object.keys(result || {}).length ? result.status : 'completed';
 
         // Update DB - step completed
         const stepDuration = Date.now() - stepStartTime;
@@ -190,17 +190,15 @@ async function runPipeline(files, options = {}, existingRunId = null) {
                 status,
                 timestamp: new Date(),
                 duration: stepDuration,
-                error: null
-              }
-            }
+                error: null,
+              },
+            },
           }
         );
 
         console.log(`✓ ${step.name} ${status}`);
         await syncRunState(runId);
-
       } catch (stepError) {
-
         // Update DB - step failed to run
         await collection.updateOne(
           { _id: runId },
@@ -208,7 +206,7 @@ async function runPipeline(files, options = {}, existingRunId = null) {
             $set: {
               status: 'failed',
               error: stepError.message,
-              endTime: new Date()
+              endTime: new Date(),
             },
             $push: {
               startedSteps: {
@@ -217,9 +215,9 @@ async function runPipeline(files, options = {}, existingRunId = null) {
                 description: step.description,
                 status: 'error',
                 timestamp: new Date(),
-                error: stepError.message
-              }
-            }
+                error: stepError.message,
+              },
+            },
           }
         );
         throw stepError;
@@ -239,9 +237,8 @@ async function runPipeline(files, options = {}, existingRunId = null) {
       success: true,
       duration,
       outputs: context.outputs,
-      runId: runId.toString()
+      runId: runId.toString(),
     };
-
   } catch (error) {
     console.error(`Pipeline failed at ${context.status}:`, error.message);
 
@@ -256,15 +253,14 @@ async function runPipeline(files, options = {}, existingRunId = null) {
             status: 'failed',
             error: error.message,
             endTime: new Date(),
-            duration: Date.now() - context.startTime
-          }
+            duration: Date.now() - context.startTime,
+          },
         }
       );
       await syncRunState(runId);
     }
 
     throw error;
-
   } finally {
     // Always disconnect VPN
     try {
@@ -282,11 +278,10 @@ async function getCurrentPipelineStatus() {
     const collection = db.collection('pipeline_runs');
 
     // Find the most recent running pipeline
-    const currentRun = await collection
-      .findOne(
-        {}, // { status: 'running' },
-        { sort: { startTime: -1 } }
-      );
+    const currentRun = await collection.findOne(
+      {}, // { status: 'running' },
+      { sort: { startTime: -1 } }
+    );
 
     if (!currentRun) {
       return {
@@ -294,7 +289,7 @@ async function getCurrentPipelineStatus() {
         status: 'idle',
         currentStep: null,
         progress: 0,
-        steps: []
+        steps: [],
       };
     }
 
@@ -305,18 +300,19 @@ async function getCurrentPipelineStatus() {
       return { running: false, status: 'timeout', currentStep: null, progress: 0, steps: [] };
     }
 
-    const allSteps = getPipelineSteps({}).map(s => s.name);
-    const completedCount = currentRun.startedSteps?.filter(s => s.status === 'completed').length || 0;
+    const allSteps = getPipelineSteps({}).map((s) => s.name);
+    const completedCount =
+      currentRun.startedSteps?.filter((s) => s.status === 'completed').length || 0;
     const progress = Math.round((completedCount / allSteps.length) * 100);
 
-    const steps = allSteps.map(stepName => {
-      const completed = currentRun.startedSteps?.find(s => s.name === stepName);
+    const steps = allSteps.map((stepName) => {
+      const completed = currentRun.startedSteps?.find((s) => s.name === stepName);
 
       const baseStep = {
         id: stepName,
         name: formatStepName(stepName),
         title: completed?.title || formatStepName(stepName),
-        description: completed?.description || ''
+        description: completed?.description || '',
       };
 
       if (completed) {
@@ -325,17 +321,17 @@ async function getCurrentPipelineStatus() {
           status: completed.status,
           timestamp: completed.timestamp,
           duration: completed.duration,
-          error: completed.error
+          error: completed.error,
         };
       } else if (isRunning && currentRun.currentStep === stepName) {
         return {
           ...baseStep,
-          status: 'running'
+          status: 'running',
         };
       } else {
         return {
           ...baseStep,
-          status: 'pending'
+          status: 'pending',
         };
       }
     });
@@ -347,22 +343,20 @@ async function getCurrentPipelineStatus() {
       progress,
       steps,
       startTime: currentRun.startTime,
-      runId: currentRun._id.toString()
+      runId: currentRun._id.toString(),
     };
-
   } catch (error) {
     console.error('Error getting pipeline status:', error);
     return {
       running: false,
       status: 'error',
-      error: error.message
+      error: error.message,
     };
   }
 }
 
 // State manager - Centralizes all state checks and notifications.
 async function syncRunState(runId, completionData = {}) {
-
   const db = getDatabase();
   const run = await db.collection('pipeline_runs').findOne({ _id: runId });
 
@@ -386,33 +380,31 @@ async function syncRunState(runId, completionData = {}) {
   }
   // Check if pipeline can be marked complete
   else {
-    const hasRunningSteps = run?.startedSteps?.some(step => step.status === 'running');
+    const hasRunningSteps = run?.startedSteps?.some((step) => step.status === 'running');
 
     // Count how many steps should have run (excluding skipped conditions)
-    const allStepNames = getPipelineSteps(run.files || {}).map(s => s.name);
-    const startedStepNames = (run.startedSteps || []).map(s => s.name);
-    const allStepsStarted = allStepNames.every(name => startedStepNames.includes(name));
+    const allStepNames = getPipelineSteps(run.files || {}).map((s) => s.name);
+    const startedStepNames = (run.startedSteps || []).map((s) => s.name);
+    const allStepsStarted = allStepNames.every((name) => startedStepNames.includes(name));
 
     if (!hasRunningSteps && allStepsStarted && run.status === 'running') {
       updateFields.status = 'completed';
       updateFields.currentStep = 'completed';
       updateFields.endTime = new Date();
-      updateFields.duration = completionData.duration || (Date.now() - new Date(run.startTime).getTime());
+      updateFields.duration =
+        completionData.duration || Date.now() - new Date(run.startTime).getTime();
       console.log('Pipeline marked as completed');
 
       // Update currentStep to the running step
     } else if (hasRunningSteps) {
-      const runningStep = run.startedSteps.find(step => step.status === 'running');
+      const runningStep = run.startedSteps.find((step) => step.status === 'running');
       updateFields.currentStep = runningStep.name;
     }
   }
 
   // Update DB if we have any fields to set
   if (Object.keys(updateFields).length > 0) {
-    await db.collection('pipeline_runs').updateOne(
-      { _id: runId },
-      { $set: updateFields }
-    );
+    await db.collection('pipeline_runs').updateOne({ _id: runId }, { $set: updateFields });
   }
 
   // Send Slack notification if run reached terminal state and not already notified
@@ -432,10 +424,9 @@ async function syncRunState(runId, completionData = {}) {
         );
 
         // Mark as notified to prevent duplicates
-        await db.collection('pipeline_runs').updateOne(
-          { _id: runId },
-          { $set: { slackNotified: true } }
-        );
+        await db
+          .collection('pipeline_runs')
+          .updateOne({ _id: runId }, { $set: { slackNotified: true } });
       } catch (notifError) {
         console.error('Slack notification failed:', notifError.message);
       }
@@ -452,18 +443,16 @@ function checkTimeout(run) {
 }
 
 function formatStepName(stepName) {
-  const step = getPipelineSteps({}).find(s => s.name === stepName);
+  const step = getPipelineSteps({}).find((s) => s.name === stepName);
   if (step && step.title) {
     return step.title;
   }
-  return stepName
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, l => l.toUpperCase());
+  return stepName.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
 module.exports = {
   runPipeline,
   getCurrentPipelineStatus,
   syncRunState,
-  checkTimeout
+  checkTimeout,
 };

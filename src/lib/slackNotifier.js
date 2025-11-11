@@ -1,7 +1,15 @@
 const axios = require('axios');
 const { formatDuration } = require('./utils');
 
-async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null) {
+async function sendPipelineNotification(
+  runId,
+  status,
+  error = null,
+  duration = null,
+  files = {},
+  startTime = null,
+  results = null
+) {
   if (!process.env.SLACK_BOT_TOKEN) {
     console.log('Slack notifications disabled (no SLACK_BOT_TOKEN)');
     return;
@@ -10,13 +18,13 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   const channel = process.env.SLACK_CHANNEL || '#ytdt-pipeline';
   const isFailure = status === 'failed' || status === 'timeout';
   const emoji = isFailure ? '❌' : '✅';
-  const statusText = status === 'timeout' ? 'Timed Out' :
-    status === 'failed' ? 'Failed' : 'Completed';
+  const statusText =
+    status === 'timeout' ? 'Timed Out' : status === 'failed' ? 'Failed' : 'Completed';
 
   const durationText = formatDuration(duration);
   const startTimeText = startTime ? new Date(startTime).toLocaleString() : 'Unknown';
   const driveFolderUrl = results?.driveFolderUrl;
-  
+
   // Build files list
   const uploadedFiles = [];
   if (files.claims?.matter_entertainment) uploadedFiles.push('Claims (ME)');
@@ -24,28 +32,32 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   if (files.mcnVerdicts) uploadedFiles.push('MCN Verdicts');
   if (files.jfmVerdicts) uploadedFiles.push('JFM Verdicts');
   const filesText = uploadedFiles.length > 0 ? uploadedFiles.join(', ') : 'None';
-  
+
   // Build claims section
   let claimsText = '';
   if (results?.claimsProcessed) {
     const claimsData = results.claimsProcessed;
     const sources = [];
     let totalNew = 0;
-    
+
     if (claimsData.matter_entertainment) {
-      sources.push(`  • Matter Entertainment: ${claimsData.matter_entertainment.new.toLocaleString()} new / ${claimsData.matter_entertainment.total.toLocaleString()} total`);
+      sources.push(
+        `  • Matter Entertainment: ${claimsData.matter_entertainment.new.toLocaleString()} new / ${claimsData.matter_entertainment.total.toLocaleString()} total`
+      );
       totalNew += claimsData.matter_entertainment.new;
     }
     if (claimsData.matter_2) {
-      sources.push(`  • Matter 2: ${claimsData.matter_2.new.toLocaleString()} new / ${claimsData.matter_2.total.toLocaleString()} total`);
+      sources.push(
+        `  • Matter 2: ${claimsData.matter_2.new.toLocaleString()} new / ${claimsData.matter_2.total.toLocaleString()} total`
+      );
       totalNew += claimsData.matter_2.new;
     }
-    
+
     if (sources.length > 0) {
       claimsText = `\n\n📊 *Claims Processed (${totalNew.toLocaleString()} new)*\n${sources.join('\n')}`;
     }
   }
-  
+
   // Build verdicts section
   let verdictsText = '';
   const mcnProcessed = results?.mcnVerdicts?.processed || 0;
@@ -56,18 +68,22 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     if (mcnProcessed) verdictsText += `\n  • MCN: ${mcnProcessed.toLocaleString()} processed`;
     if (jfmProcessed) verdictsText += `\n  • JFM: ${jfmProcessed.toLocaleString()} processed`;
   }
-  
+
   // Build issues section
   let issuesText = '';
-  const invalidMCIDs = (results?.mcnVerdicts?.invalidMCIDs?.length || 0) + (results?.jfmVerdicts?.invalidMCIDs?.length || 0);
-  const invalidLanguageIDs = (results?.mcnVerdicts?.invalidLanguageIDs?.length || 0) + (results?.jfmVerdicts?.invalidLanguageIDs?.length || 0);
+  const invalidMCIDs =
+    (results?.mcnVerdicts?.invalidMCIDs?.length || 0) +
+    (results?.jfmVerdicts?.invalidMCIDs?.length || 0);
+  const invalidLanguageIDs =
+    (results?.mcnVerdicts?.invalidLanguageIDs?.length || 0) +
+    (results?.jfmVerdicts?.invalidLanguageIDs?.length || 0);
   if (invalidMCIDs || invalidLanguageIDs) {
     const issues = [];
     if (invalidMCIDs) issues.push(`  • Invalid MCIDs: ${invalidMCIDs}`);
     if (invalidLanguageIDs) issues.push(`  • Invalid Language IDs: ${invalidLanguageIDs}`);
     issuesText = `\n\n⚠️ *Data Quality Issues*\n${issues.join('\n')}`;
   }
-  
+
   let text = `${emoji} *Pipeline Run ${statusText}*\n━━━━━━━━━━━━━━━━━━━━━━\n⏱ Duration: ${durationText}\n📅 Started: ${startTimeText}\n📁 Files: ${filesText}\n🆔 Run: \`${runId}\`${claimsText}${verdictsText}${issuesText}`;
   if (error) {
     text += `\n\n❌ *Error*\n${error}`;
@@ -78,9 +94,9 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text
-      }
-    }
+        text,
+      },
+    },
   ];
 
   // Add Drive link button for successful runs
@@ -92,12 +108,12 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
           type: 'button',
           text: {
             type: 'plain_text',
-            text: '📁 View in Drive'
+            text: '📁 View in Drive',
           },
           url: driveFolderUrl,
-          style: 'primary'
-        }
-      ]
+          style: 'primary',
+        },
+      ],
     });
   }
 
@@ -109,13 +125,13 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
           type: 'button',
           text: {
             type: 'plain_text',
-            text: 'Rerun Pipeline'
+            text: 'Rerun Pipeline',
           },
           action_id: 'rerun_pipeline',
           value: runId,
-          style: 'primary'
-        }
-      ]
+          style: 'primary',
+        },
+      ],
     });
   }
 
@@ -125,13 +141,13 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
       {
         channel,
         text: `Pipeline ${statusText}`,
-        blocks
+        blocks,
       },
       {
         headers: {
-          'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
       }
     );
     console.log(`Slack notification sent for run ${runId}`);

@@ -1,32 +1,19 @@
 const fs = require('fs').promises;
-const path = require('path');
 const { format } = require('date-fns');
 const csv = require('csv-parse/sync');
 const { cleanRow } = require('../lib/utils');
 
-
 async function processVerdicts(context) {
-
   const mysql = context.connections.mysql;
 
   // Process MCN verdicts
   if (context.files.mcnVerdicts) {
-    await processVerdictFile(
-      mysql,
-      context.files.mcnVerdicts,
-      'mcn',
-      context
-    );
+    await processVerdictFile(mysql, context.files.mcnVerdicts, 'mcn', context);
   }
 
-  // Process JFM verdicts  
+  // Process JFM verdicts
   if (context.files.jfmVerdicts) {
-    await processVerdictFile(
-      mysql,
-      context.files.jfmVerdicts,
-      'jfm',
-      context
-    );
+    await processVerdictFile(mysql, context.files.jfmVerdicts, 'jfm', context);
   }
 }
 
@@ -50,26 +37,30 @@ async function processVerdictFile(mysql, filePath, type, context) {
   const rows = csv.parse(fileContent, { columns: true });
 
   // Clean data
-  const cleaned = rows.map(row => {
+  const cleaned = rows.map((row) => {
     const cleanedRow = cleanRow(row);
     return {
       video_id: cleanedRow.video_id,
       verdict: cleanedRow.verdict || 'U',
-      media_component_id: cleanedRow.media_component_id === '' ? null : cleanedRow.media_component_id,
+      media_component_id:
+        cleanedRow.media_component_id === '' ? null : cleanedRow.media_component_id,
       language_id: cleanedRow.language_id === '' ? null : cleanedRow.language_id,
       wave: cleanedRow.wave || '0',
-      no_code: cleanedRow.no_code === '' ? null : cleanedRow.no_code
+      no_code: cleanedRow.no_code === '' ? null : cleanedRow.no_code,
     };
   });
 
   // Insert verdicts
   for (let i = 0; i < cleaned.length; i += 1000) {
     const batch = cleaned.slice(i, i + 1000);
-    const values = batch.map(r =>
-      `(${mysql.escape(r.video_id)}, ${mysql.escape(r.verdict)}, 
+    const values = batch
+      .map(
+        (r) =>
+          `(${mysql.escape(r.video_id)}, ${mysql.escape(r.verdict)}, 
         ${mysql.escape(r.media_component_id)}, ${mysql.escape(r.language_id)}, 
         ${mysql.escape(r.wave)}, ${mysql.escape(r.no_code)})`
-    ).join(',');
+      )
+      .join(',');
 
     await mysql.query(`
       INSERT INTO ${tableName} 
@@ -124,8 +115,8 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
-    invalidMCIDs: invalidMCIDsData.map(row => row.media_component_id),
-    invalidLanguageIDs: invalidLanguageIDsData.map(row => row.language_id)
+    invalidMCIDs: invalidMCIDsData.map((row) => row.media_component_id),
+    invalidLanguageIDs: invalidLanguageIDsData.map((row) => row.language_id),
   };
 }
 

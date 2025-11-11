@@ -1,9 +1,7 @@
-const axios = require('axios');
 const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
 const { syncRunState } = require('../pipeline');
 const { createAuthedClient } = require('../lib/authtedClient');
-
 
 // Get pipeline run history
 async function getHistory(req, res) {
@@ -12,14 +10,10 @@ async function getHistory(req, res) {
     const collection = db.collection('pipeline_runs');
 
     // Get runs sorted by startTime descending, limit to 50
-    const runs = await collection
-      .find({})
-      .sort({ startTime: -1 })
-      .limit(50)
-      .toArray();
+    const runs = await collection.find({}).sort({ startTime: -1 }).limit(50).toArray();
 
     // Convert MongoDB _id to id and format for frontend
-    const formattedRuns = runs.map(run => ({
+    const formattedRuns = runs.map((run) => ({
       id: run._id.toString(),
       startTime: run.startTime,
       status: run.status,
@@ -32,17 +26,17 @@ async function getHistory(req, res) {
 
     // Calculate stats
     const total = runs.length;
-    const successful = runs.filter(r => r.status === 'completed').length;
-    const failed = runs.filter(r => r.status === 'failed').length;
-    const avgDuration = runs.length > 0
-      ? Math.round(runs.reduce((sum, run) => sum + (run.duration || 0), 0) / runs.length)
-      : 0;
+    const successful = runs.filter((r) => r.status === 'completed').length;
+    const failed = runs.filter((r) => r.status === 'failed').length;
+    const avgDuration =
+      runs.length > 0
+        ? Math.round(runs.reduce((sum, run) => sum + (run.duration || 0), 0) / runs.length)
+        : 0;
 
     res.json({
       runs: formattedRuns,
-      stats: { total, successful, failed, avgDuration }
+      stats: { total, successful, failed, avgDuration },
     });
-
   } catch (error) {
     console.error('History fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch history' });
@@ -64,7 +58,7 @@ async function retryRun(req, res) {
 
     if (originalRun.status !== 'failed' && originalRun.status !== 'timeout') {
       return res.status(400).json({
-        error: 'Can only retry failed or timed out runs'
+        error: 'Can only retry failed or timed out runs',
       });
     }
 
@@ -78,8 +72,8 @@ async function retryRun(req, res) {
           startedSteps: [],
           error: null,
           endTime: null,
-          startTime: new Date()
-        }
+          startTime: new Date(),
+        },
       }
     );
 
@@ -87,17 +81,15 @@ async function retryRun(req, res) {
     const { runPipeline } = require('../pipeline');
 
     setImmediate(() => {
-      runPipeline(originalRun.files, {}, runId)
-        .catch(error => {
-          console.error('Retry pipeline error:', error);
-        });
+      runPipeline(originalRun.files, {}, runId).catch((error) => {
+        console.error('Retry pipeline error:', error);
+      });
     });
 
     res.json({
       message: 'Pipeline retry started',
-      runId: runId
+      runId: runId,
     });
-
   } catch (error) {
     console.error('Retry error:', error);
     res.status(500).json({ error: 'Retry failed' });
@@ -111,7 +103,7 @@ async function stopRun(req, res) {
     const db = getDatabase();
 
     const run = await db.collection('pipeline_runs').findOne({
-      _id: new ObjectId(id)
+      _id: new ObjectId(id),
     });
 
     if (!run) {
@@ -124,7 +116,7 @@ async function stopRun(req, res) {
 
     // Stop ML enrichment if running
     const mlTaskId = run.results?.mlEnrichment?.task_id;
-    const mlStep = run.startedSteps?.find(s => s.name === 'enrich_ml');
+    const mlStep = run.startedSteps?.find((s) => s.name === 'enrich_ml');
     const shouldStopML = mlTaskId && (!mlStep || mlStep.status === 'running');
     if (shouldStopML && process.env.ML_API_ENDPOINT) {
       try {
@@ -138,35 +130,32 @@ async function stopRun(req, res) {
     }
 
     // Update run status
-    const stoppedAt = new Date()
-    const stoppedStep = run.startedSteps?.find(s => s.status === 'running');
+    const stoppedAt = new Date();
+    const stoppedStep = run.startedSteps?.find((s) => s.status === 'running');
     const stoppedStepName = stoppedStep ? stoppedStep.title || stoppedStep.name : 'unknown step';
     const updateFields = {
       status: 'stopped',
       endTime: stoppedAt,
       duration: Date.now() - new Date(run.startTime).getTime(),
-      error: `Pipeline stopped by user at ${stoppedAt.toLocaleTimeString()} while processing: ${stoppedStepName}`
+      error: `Pipeline stopped by user at ${stoppedAt.toLocaleTimeString()} while processing: ${stoppedStepName}`,
     };
 
-    const runningStepIndex = run.startedSteps?.findIndex(s => s.status === 'running');
+    const runningStepIndex = run.startedSteps?.findIndex((s) => s.status === 'running');
     if (runningStepIndex !== -1) {
       updateFields[`startedSteps.${runningStepIndex}.status`] = 'stopped';
     }
 
-    await db.collection('pipeline_runs').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateFields }
-    );
-
+    await db
+      .collection('pipeline_runs')
+      .updateOne({ _id: new ObjectId(id) }, { $set: updateFields });
 
     await syncRunState(new ObjectId(id));
 
     res.json({
       success: true,
       message: 'Pipeline stopped',
-      mlTaskStopped: !!mlTaskId
+      mlTaskStopped: !!mlTaskId,
     });
-
   } catch (error) {
     console.error('Stop run error:', error);
     res.status(500).json({ error: 'Failed to stop pipeline' });
@@ -176,5 +165,5 @@ async function stopRun(req, res) {
 module.exports = {
   getHistory,
   retryRun,
-  stopRun
+  stopRun,
 };

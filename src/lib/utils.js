@@ -1,6 +1,5 @@
 const { format } = require('date-fns');
 
-
 module.exports.cleanRow = function (row) {
   const cleaned = {};
   Object.entries(row).forEach(([key, value]) => {
@@ -12,7 +11,7 @@ module.exports.cleanRow = function (row) {
     cleaned[key] = value;
   });
   return cleaned;
-}
+};
 
 module.exports.formatDuration = (ms) => {
   if (!ms) return `♾️`;
@@ -21,17 +20,16 @@ module.exports.formatDuration = (ms) => {
   return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 };
 
-module.exports.generateRunFolderName = (startTime) => 
+module.exports.generateRunFolderName = (startTime) =>
   format(startTime, process.env.EXPORT_FOLDER_NAME_FORMAT || 'yyyyMMddHHmmss');
-
 
 module.exports.readFile = async function (filePath, n = 2) {
   const readline = require('readline');
   const rl = readline.createInterface({
     input: require('fs').createReadStream(filePath),
-    crlfDelay: Infinity
+    crlfDelay: Infinity,
   });
-  
+
   const lines = [];
   for await (const line of rl) {
     lines.push(line);
@@ -39,4 +37,4 @@ module.exports.readFile = async function (filePath, n = 2) {
   }
   rl.close();
   return lines.join('\n');
-}
+};
