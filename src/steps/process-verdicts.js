@@ -1,24 +1,26 @@
-const fs = require('fs').promises;
-const { format } = require('date-fns');
-const csv = require('csv-parse/sync');
-const { cleanRow } = require('../lib/utils');
+import fs from 'fs/promises'
 
-async function processVerdicts(context) {
-  const mysql = context.connections.mysql;
+import { parse } from 'csv-parse/sync'
+import { format } from 'date-fns'
+
+import { cleanRow } from '../lib/utils.js'
+
+export default async function processVerdicts(context) {
+  const mysql = context.connections.mysql
 
   // Process MCN verdicts
   if (context.files.mcnVerdicts) {
-    await processVerdictFile(mysql, context.files.mcnVerdicts, 'mcn', context);
+    await processVerdictFile(mysql, context.files.mcnVerdicts, 'mcn', context)
   }
 
   // Process JFM verdicts
   if (context.files.jfmVerdicts) {
-    await processVerdictFile(mysql, context.files.jfmVerdicts, 'jfm', context);
+    await processVerdictFile(mysql, context.files.jfmVerdicts, 'jfm', context)
   }
 }
 
 async function processVerdictFile(mysql, filePath, type, context) {
-  const tableName = `${type}_verdicts_${format(new Date(), 'yyyyMMdd')}`;
+  const tableName = `${type}_verdicts_${format(new Date(), 'yyyyMMdd')}`
 
   // Create verdicts table
   await mysql.query(`
@@ -30,15 +32,15 @@ async function processVerdictFile(mysql, filePath, type, context) {
       wave VARCHAR(100),
       no_code VARCHAR(255)
     )
-  `);
+  `)
 
   // Read and parse CSV
-  const fileContent = await fs.readFile(filePath, 'utf8');
-  const rows = csv.parse(fileContent, { columns: true });
+  const fileContent = await fs.readFile(filePath, 'utf8')
+  const rows = parse(fileContent, { columns: true })
 
   // Clean data
   const cleaned = rows.map((row) => {
-    const cleanedRow = cleanRow(row);
+    const cleanedRow = cleanRow(row)
     return {
       video_id: cleanedRow.video_id,
       verdict: cleanedRow.verdict || 'U',
@@ -47,12 +49,12 @@ async function processVerdictFile(mysql, filePath, type, context) {
       language_id: cleanedRow.language_id === '' ? null : cleanedRow.language_id,
       wave: cleanedRow.wave || '0',
       no_code: cleanedRow.no_code === '' ? null : cleanedRow.no_code,
-    };
-  });
+    }
+  })
 
   // Insert verdicts
   for (let i = 0; i < cleaned.length; i += 1000) {
-    const batch = cleaned.slice(i, i + 1000);
+    const batch = cleaned.slice(i, i + 1000)
     const values = batch
       .map(
         (r) =>
@@ -60,19 +62,19 @@ async function processVerdictFile(mysql, filePath, type, context) {
         ${mysql.escape(r.media_component_id)}, ${mysql.escape(r.language_id)}, 
         ${mysql.escape(r.wave)}, ${mysql.escape(r.no_code)})`
       )
-      .join(',');
+      .join(',')
 
     await mysql.query(`
       INSERT INTO ${tableName} 
       (video_id, verdict, media_component_id, language_id, wave, no_code)
       VALUES ${values}
       ON DUPLICATE KEY UPDATE verdict = VALUES(verdict)
-    `);
+    `)
   }
 
   // Update main tables
-  const targetTable = type === 'mcn' ? 'youtube_mcn_claims' : 'youtube_channel_videos';
-  const timestampField = type === 'mcn' ? 'verdict_last_updated_date' : 'updated_at';
+  const targetTable = type === 'mcn' ? 'youtube_mcn_claims' : 'youtube_channel_videos'
+  const timestampField = type === 'mcn' ? 'verdict_last_updated_date' : 'updated_at'
 
   await mysql.query(`
     UPDATE ${targetTable} c, ${tableName} v
@@ -91,7 +93,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
         c.no_code = CASE WHEN v.no_code IS NOT NULL THEN v.no_code ELSE c.no_code END,
         c.${timestampField} = NOW()
     WHERE c.video_id = v.video_id
-  `);
+  `)
 
   // Get invalid MCIDs
   const [invalidMCIDsData] = await mysql.query(`
@@ -101,7 +103,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
     AND v.media_component_id NOT IN (
       SELECT media_component_id FROM bi_view_media_component
     )
-  `);
+  `)
 
   // Get invalid language IDs
   const [invalidLanguageIDsData] = await mysql.query(`
@@ -111,13 +113,11 @@ async function processVerdictFile(mysql, filePath, type, context) {
     AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
-  `);
+  `)
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
     invalidMCIDs: invalidMCIDsData.map((row) => row.media_component_id),
     invalidLanguageIDs: invalidLanguageIDsData.map((row) => row.language_id),
-  };
+  }
 }
-
-module.exports = processVerdicts;

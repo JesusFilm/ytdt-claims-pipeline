@@ -1,17 +1,18 @@
-const connectVPN = require('./steps/connect-vpn');
-const disconnectVPN = require('./steps/disconnect-vpn');
-const validateInputCSVs = require('./steps/validate-input-csvs');
-const backupTables = require('./steps/backup-tables');
-const processClaims = require('./steps/process-claims');
-const processVerdicts = require('./steps/process-verdicts');
-const exportViews = require('./steps/export-views');
-const enrichML = require('./steps/enrich-ml');
-const uploadDrive = require('./steps/upload-drive');
+import { ObjectId } from 'mongodb'
 
-const { getDatabase } = require('./database');
-const { ObjectId } = require('mongodb');
+import { getDatabase } from './database.js'
+import { env } from './env.js'
+import backupTables from './steps/backup-tables.js'
+import connectVPN from './steps/connect-vpn.js'
+import disconnectVPN from './steps/disconnect-vpn.js'
+import enrichML from './steps/enrich-ml.js'
+import exportViews from './steps/export-views.js'
+import processClaims from './steps/process-claims.js'
+import processVerdicts from './steps/process-verdicts.js'
+import uploadDrive from './steps/upload-drive.js'
+import validateInputCSVs from './steps/validate-input-csvs.js'
 
-const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
+const PIPELINE_TIMEOUT_MINUTES = env.PIPELINE_TIMEOUT_MINUTES
 function getPipelineSteps(files) {
   return [
     {
@@ -69,7 +70,7 @@ function getPipelineSteps(files) {
     {
       name: 'enrich_ml',
       fn: enrichML,
-      condition: () => process.env.GOOGLE_DRIVE_NAME,
+      condition: () => env.GOOGLE_DRIVE_NAME,
       title: 'Enrich ML',
       description: 'Sends unprocessed claims to ML service for verdict probability predictions',
     },
@@ -79,7 +80,7 @@ function getPipelineSteps(files) {
       title: 'Upload Drive',
       description: 'Uploads generated exports and ML results to Google Drive for review',
     },
-  ];
+  ]
 }
 
 // Main pipeline runner
@@ -91,14 +92,14 @@ async function runPipeline(files, options = {}, existingRunId = null) {
     outputs: {},
     status: 'starting',
     startTime: Date.now(),
-  };
+  }
 
-  let runId = null;
+  let runId = null
 
   try {
     // Create initial run record
-    const db = getDatabase();
-    const collection = db.collection('pipeline_runs');
+    const db = getDatabase()
+    const collection = db.collection('pipeline_runs')
 
     const initialRun = {
       status: 'running',
@@ -108,42 +109,42 @@ async function runPipeline(files, options = {}, existingRunId = null) {
       startTime: new Date(),
       error: null,
       endTime: null,
-    };
-
-    if (existingRunId) {
-      runId = new ObjectId(existingRunId);
-      context.runId = runId.toString();
-
-      // Update existing run for retry
-      await collection.updateOne({ _id: runId }, { $set: initialRun });
-
-      console.log(`Pipeline retry started with existing ID: ${runId}`);
-    } else {
-      // Create new run record
-      const result = await collection.insertOne(initialRun);
-      runId = result.insertedId;
-      context.runId = runId.toString();
-      console.log(`Pipeline run started with ID: ${runId}`);
     }
 
-    const steps = getPipelineSteps(files);
+    if (existingRunId) {
+      runId = new ObjectId(existingRunId)
+      context.runId = runId.toString()
+
+      // Update existing run for retry
+      await collection.updateOne({ _id: runId }, { $set: initialRun })
+
+      console.log(`Pipeline retry started with existing ID: ${runId}`)
+    } else {
+      // Create new run record
+      const result = await collection.insertOne(initialRun)
+      runId = result.insertedId
+      context.runId = runId.toString()
+      console.log(`Pipeline run started with ID: ${runId}`)
+    }
+
+    const steps = getPipelineSteps(files)
     for (const step of steps) {
       // Check if pipeline was stopped
-      const currentRun = await collection.findOne({ _id: runId });
+      const currentRun = await collection.findOne({ _id: runId })
       if (currentRun.status === 'stopped') {
-        console.log('Pipeline stopped by user');
-        break;
+        console.log('Pipeline stopped by user')
+        break
       }
 
       // Skip if marked to skip
       if (step.skip) {
-        console.log(`Skipping ${step.name} - ${options.testMode ? 'test mode' : 'skipped'}`);
-        continue;
+        console.log(`Skipping ${step.name} - ${options.testMode ? 'test mode' : 'skipped'}`)
+        continue
       }
 
       // Skip if condition not met
       if (step.condition && !step.condition()) {
-        console.log(`Skipping ${step.name} - no input file`);
+        console.log(`Skipping ${step.name} - no input file`)
 
         // Update DB with skipped step
         await collection.updateOne(
@@ -160,25 +161,25 @@ async function runPipeline(files, options = {}, existingRunId = null) {
               },
             },
           }
-        );
-        continue;
+        )
+        continue
       }
 
-      console.log(`Running ${step.name}...`);
+      console.log(`Running ${step.name}...`)
 
       // Update DB - step starting
-      await collection.updateOne({ _id: runId }, { $set: { currentStep: step.name } });
+      await collection.updateOne({ _id: runId }, { $set: { currentStep: step.name } })
 
-      context.status = step.name;
-      const stepStartTime = Date.now();
+      context.status = step.name
+      const stepStartTime = Date.now()
 
       try {
         // Run and extract step completion status
-        const result = await step.fn(context);
-        const status = Object.keys(result || {}).length ? result.status : 'completed';
+        const result = await step.fn(context)
+        const status = Object.keys(result || {}).length ? result.status : 'completed'
 
         // Update DB - step completed
-        const stepDuration = Date.now() - stepStartTime;
+        const stepDuration = Date.now() - stepStartTime
         await collection.updateOne(
           { _id: runId },
           {
@@ -194,10 +195,10 @@ async function runPipeline(files, options = {}, existingRunId = null) {
               },
             },
           }
-        );
+        )
 
-        console.log(`✓ ${step.name} ${status}`);
-        await syncRunState(runId);
+        console.log(`✓ ${step.name} ${status}`)
+        await syncRunState(runId)
       } catch (stepError) {
         // Update DB - step failed to run
         await collection.updateOne(
@@ -219,33 +220,33 @@ async function runPipeline(files, options = {}, existingRunId = null) {
               },
             },
           }
-        );
-        throw stepError;
+        )
+        throw stepError
       }
     }
 
     // All steps have started - not necessarily completed
     // TODO: Doesn't really matter now, but should really pick a status ≠ completed
-    context.status = 'completed';
-    const duration = Date.now() - context.startTime;
+    context.status = 'completed'
+    const duration = Date.now() - context.startTime
 
     // Update DB - pipeline completed
-    await syncRunState(runId, { duration: duration, results: context.outputs });
-    console.log(`Pipeline completed in ${Math.round(duration / 1000)}s`);
+    await syncRunState(runId, { duration: duration, results: context.outputs })
+    console.log(`Pipeline completed in ${Math.round(duration / 1000)}s`)
 
     return {
       success: true,
       duration,
       outputs: context.outputs,
       runId: runId.toString(),
-    };
+    }
   } catch (error) {
-    console.error(`Pipeline failed at ${context.status}:`, error.message);
+    console.error(`Pipeline failed at ${context.status}:`, error.message)
 
     // Update DB - pipeline failed
     if (runId) {
-      const db = getDatabase();
-      const collection = db.collection('pipeline_runs');
+      const db = getDatabase()
+      const collection = db.collection('pipeline_runs')
       await collection.updateOne(
         { _id: runId },
         {
@@ -256,17 +257,17 @@ async function runPipeline(files, options = {}, existingRunId = null) {
             duration: Date.now() - context.startTime,
           },
         }
-      );
-      await syncRunState(runId);
+      )
+      await syncRunState(runId)
     }
 
-    throw error;
+    throw error
   } finally {
     // Always disconnect VPN
     try {
-      await disconnectVPN(context);
+      await disconnectVPN(context)
     } catch (err) {
-      console.error('Failed to disconnect VPN:', err);
+      console.error('Failed to disconnect VPN:', err)
     }
   }
 }
@@ -274,14 +275,14 @@ async function runPipeline(files, options = {}, existingRunId = null) {
 // Get current pipeline status from MongoDB
 async function getCurrentPipelineStatus() {
   try {
-    const db = getDatabase();
-    const collection = db.collection('pipeline_runs');
+    const db = getDatabase()
+    const collection = db.collection('pipeline_runs')
 
     // Find the most recent running pipeline
     const currentRun = await collection.findOne(
       {}, // { status: 'running' },
       { sort: { startTime: -1 } }
-    );
+    )
 
     if (!currentRun) {
       return {
@@ -290,30 +291,30 @@ async function getCurrentPipelineStatus() {
         currentStep: null,
         progress: 0,
         steps: [],
-      };
+      }
     }
 
     // Check and handle timeout (only for running pipelines)
-    const isRunning = currentRun.status === 'running';
+    const isRunning = currentRun.status === 'running'
     if (isRunning && checkTimeout(currentRun)) {
-      await syncRunState(currentRun._id);
-      return { running: false, status: 'timeout', currentStep: null, progress: 0, steps: [] };
+      await syncRunState(currentRun._id)
+      return { running: false, status: 'timeout', currentStep: null, progress: 0, steps: [] }
     }
 
-    const allSteps = getPipelineSteps({}).map((s) => s.name);
+    const allSteps = getPipelineSteps({}).map((s) => s.name)
     const completedCount =
-      currentRun.startedSteps?.filter((s) => s.status === 'completed').length || 0;
-    const progress = Math.round((completedCount / allSteps.length) * 100);
+      currentRun.startedSteps?.filter((s) => s.status === 'completed').length || 0
+    const progress = Math.round((completedCount / allSteps.length) * 100)
 
     const steps = allSteps.map((stepName) => {
-      const completed = currentRun.startedSteps?.find((s) => s.name === stepName);
+      const completed = currentRun.startedSteps?.find((s) => s.name === stepName)
 
       const baseStep = {
         id: stepName,
         name: formatStepName(stepName),
         title: completed?.title || formatStepName(stepName),
         description: completed?.description || '',
-      };
+      }
 
       if (completed) {
         return {
@@ -322,19 +323,19 @@ async function getCurrentPipelineStatus() {
           timestamp: completed.timestamp,
           duration: completed.duration,
           error: completed.error,
-        };
+        }
       } else if (isRunning && currentRun.currentStep === stepName) {
         return {
           ...baseStep,
           status: 'running',
-        };
+        }
       } else {
         return {
           ...baseStep,
           status: 'pending',
-        };
+        }
       }
-    });
+    })
 
     return {
       running: isRunning,
@@ -344,75 +345,75 @@ async function getCurrentPipelineStatus() {
       steps,
       startTime: currentRun.startTime,
       runId: currentRun._id.toString(),
-    };
+    }
   } catch (error) {
-    console.error('Error getting pipeline status:', error);
+    console.error('Error getting pipeline status:', error)
     return {
       running: false,
       status: 'error',
       error: error.message,
-    };
+    }
   }
 }
 
 // State manager - Centralizes all state checks and notifications.
 async function syncRunState(runId, completionData = {}) {
-  const db = getDatabase();
-  const run = await db.collection('pipeline_runs').findOne({ _id: runId });
+  const db = getDatabase()
+  const run = await db.collection('pipeline_runs').findOne({ _id: runId })
 
-  if (!run) return;
+  if (!run) return
 
-  const updateFields = {};
+  const updateFields = {}
 
   // Add optional completion data if provided
   if (completionData.results) {
-    const existingResults = run.results || {};
-    updateFields.results = { ...existingResults, ...completionData.results };
+    const existingResults = run.results || {}
+    updateFields.results = { ...existingResults, ...completionData.results }
   }
 
   // Check for timeout
   if (run.status === 'running' && checkTimeout(run)) {
-    updateFields.status = 'timeout';
-    updateFields.error = `Pipeline timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`;
-    updateFields.endTime = new Date();
-    updateFields.duration = Date.now() - new Date(run.startTime).getTime();
-    console.log(`Pipeline ${runId} timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`);
+    updateFields.status = 'timeout'
+    updateFields.error = `Pipeline timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`
+    updateFields.endTime = new Date()
+    updateFields.duration = Date.now() - new Date(run.startTime).getTime()
+    console.log(`Pipeline ${runId} timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`)
   }
   // Check if pipeline can be marked complete
   else {
-    const hasRunningSteps = run?.startedSteps?.some((step) => step.status === 'running');
+    const hasRunningSteps = run?.startedSteps?.some((step) => step.status === 'running')
 
     // Count how many steps should have run (excluding skipped conditions)
-    const allStepNames = getPipelineSteps(run.files || {}).map((s) => s.name);
-    const startedStepNames = (run.startedSteps || []).map((s) => s.name);
-    const allStepsStarted = allStepNames.every((name) => startedStepNames.includes(name));
+    const allStepNames = getPipelineSteps(run.files || {}).map((s) => s.name)
+    const startedStepNames = (run.startedSteps || []).map((s) => s.name)
+    const allStepsStarted = allStepNames.every((name) => startedStepNames.includes(name))
 
     if (!hasRunningSteps && allStepsStarted && run.status === 'running') {
-      updateFields.status = 'completed';
-      updateFields.currentStep = 'completed';
-      updateFields.endTime = new Date();
+      updateFields.status = 'completed'
+      updateFields.currentStep = 'completed'
+      updateFields.endTime = new Date()
       updateFields.duration =
-        completionData.duration || Date.now() - new Date(run.startTime).getTime();
-      console.log('Pipeline marked as completed');
+        completionData.duration || Date.now() - new Date(run.startTime).getTime()
+      console.log('Pipeline marked as completed')
 
       // Update currentStep to the running step
     } else if (hasRunningSteps) {
-      const runningStep = run.startedSteps.find((step) => step.status === 'running');
-      updateFields.currentStep = runningStep.name;
+      const runningStep = run.startedSteps.find((step) => step.status === 'running')
+      updateFields.currentStep = runningStep.name
     }
   }
 
   // Update DB if we have any fields to set
   if (Object.keys(updateFields).length > 0) {
-    await db.collection('pipeline_runs').updateOne({ _id: runId }, { $set: updateFields });
+    await db.collection('pipeline_runs').updateOne({ _id: runId }, { $set: updateFields })
   }
 
   // Send Slack notification if run reached terminal state and not already notified
-  if (process.env.SLACK_BOT_TOKEN && !run.slackNotified) {
-    const finalStatus = updateFields.status || run.status;
+  if (env.SLACK_BOT_TOKEN && !run.slackNotified) {
+    const finalStatus = updateFields.status || run.status
     if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'timeout') {
       try {
-        const { sendPipelineNotification } = require('./lib/slackNotifier');
+        const { sendPipelineNotification } = await import('./lib/slackNotifier.js')
         await sendPipelineNotification(
           runId.toString(),
           finalStatus,
@@ -421,14 +422,14 @@ async function syncRunState(runId, completionData = {}) {
           run.files,
           run.startTime,
           updateFields.results || run.results
-        );
+        )
 
         // Mark as notified to prevent duplicates
         await db
           .collection('pipeline_runs')
-          .updateOne({ _id: runId }, { $set: { slackNotified: true } });
+          .updateOne({ _id: runId }, { $set: { slackNotified: true } })
       } catch (notifError) {
-        console.error('Slack notification failed:', notifError.message);
+        console.error('Slack notification failed:', notifError.message)
       }
     }
   }
@@ -436,23 +437,18 @@ async function syncRunState(runId, completionData = {}) {
 
 // Check if a running pipeline has exceeded the timeout limit
 function checkTimeout(run) {
-  const timeoutMs = PIPELINE_TIMEOUT_MINUTES * 60 * 1000;
-  const elapsed = Date.now() - new Date(run.startTime).getTime();
+  const timeoutMs = PIPELINE_TIMEOUT_MINUTES * 60 * 1000
+  const elapsed = Date.now() - new Date(run.startTime).getTime()
 
-  return elapsed > timeoutMs;
+  return elapsed > timeoutMs
 }
 
 function formatStepName(stepName) {
-  const step = getPipelineSteps({}).find((s) => s.name === stepName);
+  const step = getPipelineSteps({}).find((s) => s.name === stepName)
   if (step && step.title) {
-    return step.title;
+    return step.title
   }
-  return stepName.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+  return stepName.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
-module.exports = {
-  runPipeline,
-  getCurrentPipelineStatus,
-  syncRunState,
-  checkTimeout,
-};
+export { runPipeline, getCurrentPipelineStatus, syncRunState, checkTimeout }

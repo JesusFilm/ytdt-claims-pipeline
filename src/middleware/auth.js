@@ -1,35 +1,36 @@
-const jwt = require('jsonwebtoken');
+import jwt from 'jsonwebtoken'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const JWT_EXPIRY = '7d';
+import { env } from '../env.js'
 
-function generateToken(user) {
-  return jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+const JWT_EXPIRY = '7d'
+
+export function generateToken(user) {
+  return jwt.sign({ userId: user.id, email: user.email }, env.JWT_SECRET, {
+    expiresIn: JWT_EXPIRY,
+  })
 }
 
-function verifyToken(token) {
+export function verifyToken(token) {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, env.JWT_SECRET)
   } catch {
-    return null;
+    return null
   }
 }
 
-function authenticateRequest(req, res, next) {
-  const authHeader = req.headers.authorization;
+export function authenticateRequest(req, res, next) {
+  const authHeader = req.headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
+    return res.status(401).json({ error: 'No token provided' })
   }
 
-  const token = authHeader.substring(7);
-  const decoded = verifyToken(token);
+  const token = authHeader.substring(7)
+  const decoded = verifyToken(token)
 
   if (!decoded) {
-    return res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ error: 'Invalid token' })
   }
 
-  req.user = decoded;
-  next();
+  req.user = decoded
+  next()
 }
-
-module.exports = { generateToken, authenticateRequest };

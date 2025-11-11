@@ -7,17 +7,21 @@ assignees: ''
 ---
 
 ## Description
+
 A clear description of the feature.
 
 ## Motivation
+
 Why is this feature needed?
 
 ## Proposed Solution
+
 How should this feature work?
 
 ## Alternatives Considered
+
 Other solutions you've considered.
 
 ## Additional Context
-Add any other context or mockups.
 
+Add any other context or mockups.

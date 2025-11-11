@@ -1,25 +1,38 @@
-const prettier = require('eslint-config-prettier');
+import prettier from 'eslint-config-prettier'
+import importPlugin from 'eslint-plugin-import'
 
-module.exports = [
+export default [
+  {
+    ignores: ['dist/**', 'node_modules/**'],
+  },
   {
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: 'script',
+      sourceType: 'module',
       globals: {
         console: 'readonly',
         process: 'readonly',
         Buffer: 'readonly',
-        __dirname: 'readonly',
-        __filename: 'readonly',
-        require: 'readonly',
-        module: 'readonly',
-        exports: 'readonly',
       },
+    },
+    plugins: {
+      import: importPlugin,
     },
     rules: {
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'no-console': 'off',
+      'import/order': [
+        'error',
+        {
+          groups: ['builtin', 'external', 'internal', ['parent', 'sibling'], 'index', 'type'],
+          'newlines-between': 'always',
+          alphabetize: {
+            order: 'asc',
+            caseInsensitive: true,
+          },
+        },
+      ],
     },
   },
   prettier,
-];
+]

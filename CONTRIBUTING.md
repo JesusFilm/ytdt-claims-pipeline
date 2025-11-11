@@ -36,4 +36,3 @@ Thank you for your interest in contributing!
 - Keep PRs focused on a single feature or fix
 - Ensure CI checks pass
 - Request review from maintainers
-

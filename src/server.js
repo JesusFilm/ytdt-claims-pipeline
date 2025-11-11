@@ -1,28 +1,28 @@
-require('dotenv').config();
-const express = require('express');
-const multer = require('multer');
-const cors = require('cors');
-const { runPipeline } = require('./pipeline');
-const { createApiRoutes } = require('./routes/api');
-const { connectToDatabase, closeConnection } = require('./database');
-const { createAuthRoutes } = require('./routes/auth');
-const { authenticateRequest } = require('./middleware/auth');
-const { handleMLWebhook } = require('./controllers/statusController');
-const { getHealth } = require('./controllers/statusController');
+import 'dotenv/config'
+import cors from 'cors'
+import express from 'express'
+import multer from 'multer'
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+import { handleMLWebhook, getHealth } from './controllers/statusController.js'
+import { connectToDatabase, closeConnection } from './database.js'
+import { env } from './env.js'
+import { authenticateRequest } from './middleware/auth.js'
+import { runPipeline } from './pipeline.js'
+import { createApiRoutes } from './routes/api.js'
+import { createAuthRoutes } from './routes/auth.js'
+
+const app = express()
 
 // Middleware
-app.use(cors());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(cors())
+app.use(express.urlencoded({ extended: true }))
+app.use(express.json())
 
 // File upload config
 const upload = multer({
   dest: 'data/uploads/',
   limits: { fileSize: 1024 * 1024 * 5000 }, // 5GB
-});
+})
 
 // Store current pipeline status
 let pipelineStatus = {
@@ -30,16 +30,16 @@ let pipelineStatus = {
   status: 'idle',
   startTime: null,
   error: null,
-};
+}
 
 // Initialize database connection
 async function initializeApp() {
   try {
-    await connectToDatabase();
-    console.log('Database connected successfully');
+    await connectToDatabase()
+    console.log('Database connected successfully')
   } catch (error) {
-    console.error('Failed to connect to database:', error);
-    process.exit(1);
+    console.error('Failed to connect to database:', error)
+    process.exit(1)
   }
 }
 
@@ -57,7 +57,7 @@ app.post(
       return res.status(409).json({
         error: 'Pipeline already running',
         status: pipelineStatus.status,
-      });
+      })
     }
 
     const files = {
@@ -67,7 +67,7 @@ app.post(
       },
       mcnVerdicts: req.files.mcn_verdicts?.[0]?.path,
       jfmVerdicts: req.files.jfm_verdicts?.[0]?.path,
-    };
+    }
 
     // Start pipeline
     pipelineStatus = {
@@ -75,7 +75,7 @@ app.post(
       status: 'starting',
       startTime: Date.now(),
       error: null,
-    };
+    }
 
     // Run pipeline in background
     runPipeline(files)
@@ -86,7 +86,7 @@ app.post(
           startTime: null,
           error: null,
           result,
-        };
+        }
       })
       .catch(async (error) => {
         pipelineStatus = {
@@ -94,8 +94,8 @@ app.post(
           status: 'failed',
           startTime: null,
           error: error.message,
-        };
-      });
+        }
+      })
 
     res.json({
       message: 'Pipeline started',
@@ -105,38 +105,38 @@ app.post(
         mcnVerdicts: req.files.mcn_verdicts?.[0]?.originalname,
         jfmVerdicts: req.files.jfm_verdicts?.[0]?.originalname,
       },
-    });
+    })
   }
-);
+)
 
 // Mount public routes (server-to-server callback, health check)
-app.post('/api/ml-webhook', handleMLWebhook);
-app.get('/api/health', getHealth);
+app.post('/api/ml-webhook', handleMLWebhook)
+app.get('/api/health', getHealth)
 
 // Mount & Protect API routes
-app.use('/api/auth', createAuthRoutes());
-app.use('/api', authenticateRequest, createApiRoutes(pipelineStatus));
+app.use('/api/auth', createAuthRoutes())
+app.use('/api', authenticateRequest, createApiRoutes(pipelineStatus))
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('Shutting down gracefully...');
-  await closeConnection();
-  process.exit(0);
-});
+  console.log('Shutting down gracefully...')
+  await closeConnection()
+  process.exit(0)
+})
 
 process.on('SIGTERM', async () => {
-  console.log('Shutting down gracefully...');
-  await closeConnection();
-  process.exit(0);
-});
+  console.log('Shutting down gracefully...')
+  await closeConnection()
+  process.exit(0)
+})
 
 // Start server
 async function startServer() {
-  await initializeApp();
+  await initializeApp()
 
-  app.listen(PORT, () => {
-    console.log(`API running on port ${PORT}`);
-  });
+  app.listen(env.PORT, () => {
+    console.log(`API running on port ${env.PORT}`)
+  })
 }
 
-startServer().catch(console.error);
+startServer().catch(console.error)

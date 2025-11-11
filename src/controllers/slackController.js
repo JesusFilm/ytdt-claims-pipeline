@@ -1,50 +1,52 @@
-const { ObjectId } = require('mongodb');
-const { getDatabase } = require('../database');
-const { runPipeline } = require('../pipeline');
+import { ObjectId } from 'mongodb'
 
-const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
+import { getDatabase } from '../database.js'
+import { env } from '../env.js'
+import { runPipeline } from '../pipeline.js'
+
+const SLACK_SIGNING_SECRET = env.SLACK_SIGNING_SECRET
 
 async function handleInteraction(req, res) {
-  console.log('Received Slack interaction');
+  console.log('Received Slack interaction')
 
   if (!SLACK_SIGNING_SECRET) {
-    return res.status(500).json({ error: 'Slack not configured' });
+    return res.status(500).json({ error: 'Slack not configured' })
   }
 
-  const payload = JSON.parse(req.body.payload);
-  const action = payload.actions[0];
-  console.log('Action ID:', action.action_id);
+  const payload = JSON.parse(req.body.payload)
+  const action = payload.actions[0]
+  console.log('Action ID:', action.action_id)
 
   if (action.action_id === 'rerun_pipeline') {
-    const runId = action.value;
+    const runId = action.value
 
     try {
-      const db = getDatabase();
+      const db = getDatabase()
       const run = await db.collection('pipeline_runs').findOne({
         _id: new ObjectId(runId),
-      });
+      })
 
       if (!run) {
-        return res.json({ text: 'Run not found' });
+        return res.json({ text: 'Run not found' })
       }
 
       // Acknowledge immediately
       res.json({
         text: `Rerunning pipeline...`,
         replace_original: false,
-      });
+      })
 
       // Trigger rerun asynchronously
       runPipeline(run.files, {}, runId).catch((err) => {
-        console.error('Pipeline rerun failed:', err);
-      });
+        console.error('Pipeline rerun failed:', err)
+      })
     } catch (err) {
-      console.error('Interaction error:', err);
-      return res.json({ text: 'Failed to rerun pipeline' });
+      console.error('Interaction error:', err)
+      return res.json({ text: 'Failed to rerun pipeline' })
     }
   } else {
-    res.json({ text: 'Unknown action' });
+    res.json({ text: 'Unknown action' })
   }
 }
 
-module.exports = { handleInteraction };
+export { handleInteraction }
