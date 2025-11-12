@@ -9,7 +9,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, '../package.json'), 
 
 const versionFile = `// This file is auto-generated from package.json
 // Run: node scripts/sync-version.js
-export const VERSION = '${packageJson.version}';
+export const VERSION = '${packageJson.version}'
 `
 
 writeFileSync(join(__dirname, '../src/version.js'), versionFile, 'utf8')
