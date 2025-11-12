@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky install && node scripts/sync-version.js",
-    "sync-version": "node scripts/sync-version.js"
+    "sync-version": "node scripts/sync-version.js",
+    "danger": "danger ci"
   },
   "dependencies": {
     "@t3-oss/env-core": "^0.13.8",
@@ -35,6 +36,11 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@commitlint/lint": "^19.0.0",
+    "@commitlint/load": "^19.0.0",
+    "danger": "^11.3.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-import": "^2.32.0",
