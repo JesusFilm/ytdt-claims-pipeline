@@ -2,7 +2,7 @@
 node_modules/
 dist/
 config/
-!config/oauth.js
+!config/oauth.ts
 logs/
 
 .env*
