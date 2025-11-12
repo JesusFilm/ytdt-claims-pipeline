@@ -2,19 +2,20 @@
   "name": "ytdt-claims-pipeline",
   "version": "1.0.0",
   "type": "module",
-  "main": "src/server/server.js",
+  "main": "src/server/server.ts",
   "packageManager": "pnpm@10.21.0",
   "scripts": {
-    "start": "node --max-old-space-size=8192 src/server/index.js",
-    "dev": "nodemon --max-old-space-size=8192 src/server/index.js",
+    "start": "NODE_OPTIONS='--max-old-space-size=8192' tsx src/server/index.ts",
+    "dev": "NODE_OPTIONS='--max-old-space-size=8192' nodemon --exec tsx src/server/index.ts",
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky install && node scripts/sync-version.js",
-    "sync-version": "node scripts/sync-version.js",
+    "prepare": "husky install && tsx scripts/sync-version.ts",
+    "type-check": "tsc --noEmit --project tsconfig.app.json && tsc --noEmit --project tsconfig.test.json",
+    "sync-version": "tsx scripts/sync-version.ts",
     "danger": "danger ci"
   },
   "dependencies": {
@@ -40,6 +41,13 @@
     "@commitlint/config-conventional": "^19.0.0",
     "@commitlint/lint": "^19.0.0",
     "@commitlint/load": "^19.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.10.1",
+    "@typescript-eslint/eslint-plugin": "^8.46.4",
+    "@typescript-eslint/parser": "^8.46.4",
     "danger": "^11.3.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.1.0",
@@ -48,10 +56,12 @@
     "lint-staged": "^15.2.0",
     "nodemon": "^3.0.1",
     "prettier": "^3.3.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
     "vitest": "^2.1.0"
   },
   "lint-staged": {
-    "*.{js,json}": [
+    "*.{js,ts,json}": [
       "prettier --write",
       "eslint --fix"
     ]
