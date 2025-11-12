@@ -12,5 +12,5 @@ const versionFile = `// This file is auto-generated from package.json
 export const VERSION = '${packageJson.version}'
 `
 
-writeFileSync(join(__dirname, '../src/version.js'), versionFile, 'utf8')
+writeFileSync(join(__dirname, '../src/version/version.js'), versionFile, 'utf8')
 console.log(`✓ Synced version to ${packageJson.version}`)

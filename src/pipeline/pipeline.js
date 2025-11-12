@@ -382,8 +382,9 @@ export async function syncRunState(runId, completionData = {}) {
   else {
     const hasRunningSteps = run?.startedSteps?.some((step) => step.status === 'running')
 
-    // Count how many steps should have run (excluding skipped conditions)
-    const allStepNames = getPipelineSteps(run.files || {}).map((s) => s.name)
+    // Get steps that should have run (filtering by conditions)
+    const allSteps = getPipelineSteps(run.files || {})
+    const allStepNames = allSteps.filter((s) => !s.condition || s.condition()).map((s) => s.name)
     const startedStepNames = (run.startedSteps || []).map((s) => s.name)
     const allStepsStarted = allStepNames.every((name) => startedStepNames.includes(name))
 

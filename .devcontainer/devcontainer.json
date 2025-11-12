@@ -1,0 +1,46 @@
+{
+  "name": "ytdt-claims-pipeline",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22",
+      "nodeGypDependencies": true,
+      "installYarnUsingApt": false
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-typescript-next",
+        "vitest.explorer"
+      ],
+      "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "typescript.enablePromptUseWorkspaceTsdk": true
+      }
+    }
+  },
+
+  "postCreateCommand": "corepack enable && pnpm install",
+
+  "remoteUser": "node",
+
+  "forwardPorts": [3000, 27017],
+
+  "remoteEnv": {
+    "MONGODB_URI": "mongodb://mongodb:27017/ytdt-claims-pipeline",
+    "NODE_ENV": "development",
+    "PORT": "3000"
+  }
+}

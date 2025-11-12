@@ -58,6 +58,8 @@ export function getHealth(req, res) {
       health.enrich_ml_status = 'unhealthy'
       health.status = 'degraded'
     }
+
+    return health
   }
 
   healthCheck()
@@ -86,8 +88,12 @@ export async function handleMLWebhook(req, res) {
       ? Date.now() - new Date(enrichStep.timestamp).getTime()
       : 0
     const folderName = generateRunFolderName(run.startTime)
-    const fileName = `unprocessed_claims_${enrichStep.name}.csv`
-    const fullCsvUrl = env.ML_API_ENDPOINT ? path.join(env.ML_API_ENDPOINT, csv_path) : csv_path
+    const fileName = `unprocessed_claims_${enrichStep?.name || 'enrich_ml'}.csv`
+    const fullCsvUrl = csv_path
+      ? env.ML_API_ENDPOINT
+        ? path.join(env.ML_API_ENDPOINT, csv_path)
+        : csv_path
+      : null
 
     // Upload CSV to Drive if successful and Drive is configured
     let driveUpload = null
