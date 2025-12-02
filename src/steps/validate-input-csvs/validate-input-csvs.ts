@@ -98,7 +98,7 @@ export default async function validateInputCSVs(context: PipelineContext) {
         }
 
         rows[0] = normalizeClaimsColumns(rows[0])
-        const actualColumns = Object.keys(rows[0])
+        const actualColumns = Object.keys(rows[0]).filter(col => col.trim() !== '')
         const validColumns = VALID_COLUMNS.claims
         const invalidColumns = actualColumns.filter((col) => !validColumns.includes(col))
 
@@ -134,7 +134,7 @@ export default async function validateInputCSVs(context: PipelineContext) {
         continue
       }
 
-      const actualColumns = Object.keys(rows[0])
+      const actualColumns = Object.keys(rows[0]).filter(col => col.trim() !== '')
       const validColumns = VALID_COLUMNS[fileType]
       const invalidColumns = actualColumns.filter((col) => !validColumns.includes(col))
 
