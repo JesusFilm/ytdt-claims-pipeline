@@ -11,13 +11,13 @@ async function processClaims(context, claimsSource) {
 
   const mysql = context.connections.mysql;
   const tableName = `claim_report_${format(new Date(), 'yyyyMMdd')}_${claimsSource}`;
-  
+
   // Create temp table
   await mysql.query(`CREATE TABLE IF NOT EXISTS ${tableName} LIKE youtube_mcn_claims`);
-  
+
   // Parse and insert claims
   const rows = await parseCSV(claims);
-  const filtered = rows.filter(row => 
+  const filtered = rows.filter(row =>
     row.asset_labels?.includes('Jesus Film') ||
     (row.claim_origin === 'WEB_UPLOAD_BY_OWNER' && row.channel_id === 'UCCtcQHR6-mQHQh6G06IPlDA')
   );
@@ -29,7 +29,7 @@ async function processClaims(context, claimsSource) {
   for (let i = 0; i < filtered.length; i += BATCH_SIZE) {
     const batch = filtered.slice(i, i + BATCH_SIZE);
     await insertBatch(mysql, tableName, batch);
-    
+
     if (i % 50000 === 0) {
       console.log(`Processed ${i}/${filtered.length} claims`);
     }
@@ -43,12 +43,34 @@ async function processClaims(context, claimsSource) {
     AND video_id != ''
   `);
 
+  // Validate youtube_mcn_claims table for invalid media_component_id
+  const [invalidMCIDs] = await mysql.query(`
+    SELECT media_component_id FROM youtube_mcn_claims v
+    WHERE v.media_component_id IS NOT NULL 
+    AND v.media_component_id != '-'
+    AND v.media_component_id NOT IN (
+      SELECT media_component_id FROM bi_view_media_component
+    )
+  `);
+
+  // Validate youtube_mcn_claims table for invalid language_id
+  const [invalidLanguageIDs] = await mysql.query(`
+    SELECT video_id, language_id FROM youtube_mcn_claims v
+    WHERE v.language_id IS NOT NULL 
+    AND v.language_id != '-'
+    AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
+      SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
+    )
+  `);
+
   if (!context.outputs.claimsProcessed) {
     context.outputs.claimsProcessed = {};
   }
   context.outputs.claimsProcessed[claimsSource] = {
     total: filtered.length,
-    new: result.affectedRows
+    new: result.affectedRows,
+    invalidMCIDs: invalidMCIDs.map(row => row.media_component_id),
+    invalidLanguageIDs: invalidLanguageIDs.map(row => row.language_id)
   };
 }
 
@@ -65,18 +87,18 @@ function parseCSV(filePath) {
 
 async function insertBatch(mysql, table, batch) {
   if (batch.length === 0) return;
-  
+
   const columns = Object.keys(batch[0]);
-  const values = batch.map(row => 
+  const values = batch.map(row =>
     columns.map(col => mysql.escape(row[col]))
   );
-  
+
   const sql = `
     INSERT INTO ${table} (${columns.join(',')})
     VALUES ${values.map(v => `(${v.join(',')})`).join(',')}
     ON DUPLICATE KEY UPDATE claim_last_updated_date = NOW()
   `;
-  
+
   await mysql.query(sql);
 }
 
