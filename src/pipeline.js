@@ -461,9 +461,131 @@ function formatStepName(stepName) {
     .replace(/\b\w/g, l => l.toUpperCase());
 }
 
+// Run a single step with reconstructed context
+async function runSingleStep(runId, stepName, run) {
+  const db = getDatabase();
+  const mysql = require('mysql2/promise');
+  const path = require('path');
+  const { generateRunFolderName } = require('./lib/utils');
+
+  const stepMap = {
+    export_views: exportViews,
+    enrich_ml: enrichML,
+    upload_drive: uploadDrive
+  };
+
+  const stepFn = stepMap[stepName];
+  if (!stepFn) {
+    throw new Error(`Unknown step: ${stepName}`);
+  }
+
+  // Reconstruct context
+  const context = {
+    files: run.files,
+    options: {},
+    connections: {},
+    outputs: run.results || {},
+    status: stepName,
+    startTime: new Date(run.startTime).getTime(),
+    runId: new ObjectId(runId).toString()
+  };
+
+  // Reconnect to MySQL (needed for export_views)
+  if (stepName === 'export_views') {
+    context.connections.mysql = await mysql.createPool({
+      host: process.env.MYSQL_HOST,
+      user: process.env.MYSQL_USER,
+      password: process.env.MYSQL_PASSWORD,
+      database: process.env.MYSQL_DATABASE,
+      waitForConnections: true,
+      connectionLimit: 10,
+    });
+  }
+
+  // Rebuild export paths for enrich_ml and upload_drive
+  if (stepName === 'enrich_ml' || stepName === 'upload_drive') {
+    const folderName = generateRunFolderName(run.startTime);
+    const exportDir = path.join(process.cwd(), 'data', 'exports', folderName);
+    
+    // Verify files exist
+    const fs = require('fs').promises;
+    try {
+      await fs.access(exportDir);
+    } catch (error) {
+      throw new Error(`Export directory not found: ${exportDir}. Cannot restart ${stepName}.`);
+    }
+
+    // Rebuild exports metadata if needed
+    if (!context.outputs.exports && stepName === 'enrich_ml') {
+      context.outputs.exports = {
+        export_unprocessed_claims: {
+          path: path.join(exportDir, 'unprocessed_claims.csv')
+        }
+      };
+    }
+  }
+
+  const stepIndex = run.startedSteps.findIndex(s => s.name === stepName);
+  const stepStartTime = Date.now();
+
+  try {
+    // Run step
+    const result = await stepFn(context);
+    const status = Object.keys(result || {}).length ? result.status : 'completed';
+    const stepDuration = Date.now() - stepStartTime;
+
+    // Update step status
+    await db.collection('pipeline_runs').updateOne(
+      { _id: new ObjectId(runId) },
+      {
+        $set: {
+          [`startedSteps.${stepIndex}.status`]: status,
+          [`startedSteps.${stepIndex}.duration`]: stepDuration,
+          [`startedSteps.${stepIndex}.error`]: null,
+          [`startedSteps.${stepIndex}.completed_at`]: new Date()
+        }
+      }
+    );
+
+    // Update results if step produced outputs
+    if (result) {
+      await db.collection('pipeline_runs').updateOne(
+        { _id: new ObjectId(runId) },
+        { $set: { [`results.${stepName}`]: result } }
+      );
+    }
+
+    await syncRunState(new ObjectId(runId));
+    console.log(`✓ Step ${stepName} restarted successfully`);
+
+  } catch (stepError) {
+    // Update step with error
+    await db.collection('pipeline_runs').updateOne(
+      { _id: new ObjectId(runId) },
+      {
+        $set: {
+          [`startedSteps.${stepIndex}.status`]: 'error',
+          [`startedSteps.${stepIndex}.error`]: stepError.message,
+          [`startedSteps.${stepIndex}.completed_at`]: new Date()
+        }
+      }
+    );
+
+    await syncRunState(new ObjectId(runId));
+    throw stepError;
+
+  } finally {
+    // Cleanup connections
+    if (context.connections.mysql) {
+      await context.connections.mysql.end();
+    }
+  }
+}
+
 module.exports = {
   runPipeline,
   getCurrentPipelineStatus,
   syncRunState,
-  checkTimeout
+  checkTimeout,
+  runSingleStep
 };
