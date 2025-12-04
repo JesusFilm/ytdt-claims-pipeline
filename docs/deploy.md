@@ -99,6 +99,11 @@ The VM metadata is set at creation time. To change:
 ### SSL Certificate Fails
 
 - Check logs: `sudo cat /var/log/letsencrypt/letsencrypt.log`
+- Deploy certificate manually, eg. 
+```shell
+sudo rm -rf /etc/letsencrypt/accounts
+sudo certbot --nginx -d 35.227.61.101.nip.io --non-interactive --agree-tos --email me@ceduth.dev --redirect
+```
 
 ### Check systemd service issues
 
