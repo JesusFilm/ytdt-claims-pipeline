@@ -45,7 +45,7 @@ async function processClaims(context, claimsSource) {
 
   // Validate youtube_mcn_claims table for invalid media_component_id
   const [invalidMCIDs] = await mysql.query(`
-    SELECT media_component_id FROM youtube_mcn_claims v
+    SELECT DISTINCT media_component_id FROM youtube_mcn_claims v
     WHERE v.media_component_id IS NOT NULL 
     AND v.media_component_id != '-'
     AND v.media_component_id NOT IN (
@@ -55,7 +55,7 @@ async function processClaims(context, claimsSource) {
 
   // Validate youtube_mcn_claims table for invalid language_id
   const [invalidLanguageIDs] = await mysql.query(`
-    SELECT video_id, language_id FROM youtube_mcn_claims v
+    SELECT DISTINCT video_id, language_id FROM youtube_mcn_claims v
     WHERE v.language_id IS NOT NULL 
     AND v.language_id != '-'
     AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (

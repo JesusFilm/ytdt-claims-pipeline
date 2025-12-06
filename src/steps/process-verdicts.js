@@ -104,7 +104,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   // Get invalid MCIDs
   const [invalidMCIDsData] = await mysql.query(`
-    SELECT media_component_id FROM ${tableName} v
+    SELECT DISTINCT media_component_id FROM ${tableName} v
     WHERE v.media_component_id IS NOT NULL 
     AND v.media_component_id != '-'
     AND v.media_component_id NOT IN (
@@ -114,13 +114,13 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   // Get invalid language IDs
   const [invalidLanguageIDsData] = await mysql.query(`
-    SELECT video_id, language_id FROM ${tableName} v
+    SELECT DISTINCT video_id, language_id FROM ${tableName} v
     WHERE v.language_id IS NOT NULL 
     AND v.language_id != '-'
     AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
-  `);
+  `); 
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
