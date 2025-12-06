@@ -199,7 +199,7 @@ async function restartStep(req, res) {
     const step = run.startedSteps[stepIndex];
     
     // Only allow restart if step is completed, failed, or error
-    if (!['completed', 'failed', 'error', 'running'].includes(step.status)) {
+    if (!['completed', 'failed', 'error', 'running', 'timeout'].includes(step.status)) {
       return res.status(400).json({
         error: `Cannot restart step with status '${step.status}'`
       });

@@ -10,6 +10,7 @@ const uploadDrive = require('./steps/upload-drive');
 
 const { getDatabase } = require('./database');
 const { ObjectId } = require('mongodb');
+const { intervalToDuration, formatDuration } = require('date-fns');
 
 
 const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
@@ -31,15 +32,15 @@ function getPipelineSteps(files) {
       description: 'Creates backup copies of database tables before processing'
     },
     {
-      name: 'process_claims_matter_entertainment', 
-      fn: (ctx) => processClaims(ctx, 'matter_entertainment'), 
+      name: 'process_claims_matter_entertainment',
+      fn: (ctx) => processClaims(ctx, 'matter_entertainment'),
       condition: () => !!files.claims?.matter_entertainment,
       title: 'Process Claims (Matter Entertainment)',
       description: 'Imports and processes Matter Entertainment MCN claims'
     },
     {
-      name: 'process_claims_matter_2', 
-      fn: (ctx) => processClaims(ctx, 'matter_2'), 
+      name: 'process_claims_matter_2',
+      fn: (ctx) => processClaims(ctx, 'matter_2'),
       condition: () => !!files.claims?.matter_2,
       title: 'Process Claims (Matter 2)',
       description: 'Imports and processes Matter 2 MCN claims'
@@ -347,7 +348,15 @@ async function getCurrentPipelineStatus() {
       progress,
       steps,
       startTime: currentRun.startTime,
-      runId: currentRun._id.toString()
+      runId: currentRun._id.toString(),
+      lastRun: isRunning ? undefined : {
+        id: currentRun._id.toString(),
+        startTime: currentRun.startTime,
+        status: currentRun.status,
+        duration: currentRun.duration,
+        error: currentRun.error,
+        results: currentRun.results
+      }
     };
 
   } catch (error) {
@@ -383,21 +392,44 @@ async function syncRunState(runId, completionData = {}) {
     updateFields.endTime = new Date();
     updateFields.duration = Date.now() - new Date(run.startTime).getTime();
     console.log(`Pipeline ${runId} timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`);
+
+    // Update any running steps to timeout status
+    if (run.startedSteps) {
+      const updatedSteps = run.startedSteps.map(step => {
+        if (step.status === 'running') {
+          const stepElapsed = Date.now() - new Date(step.timestamp).getTime();
+          const duration = intervalToDuration({ start: 0, end: stepElapsed });
+          const formatted = formatDuration(duration, { format: ['minutes', 'seconds'] });
+
+          return {
+            ...step,
+            status: 'timeout',
+            duration: stepElapsed,
+            error: `Step exceeded ${PIPELINE_TIMEOUT_MINUTES} minute timeout after ${formatted}`
+          };
+        }
+        return step;
+      });
+      updateFields.startedSteps = updatedSteps;
+    }
+
   }
   // Check if pipeline can be marked complete
   else {
     const hasRunningSteps = run?.startedSteps?.some(step => step.status === 'running');
+    const allStepsCompleted = run?.startedSteps?.every(step => ['completed', 'skipped'].includes(step.status));
 
     // Count how many steps should have run (excluding skipped conditions)
     const allStepNames = getPipelineSteps(run.files || {}).map(s => s.name);
     const startedStepNames = (run.startedSteps || []).map(s => s.name);
     const allStepsStarted = allStepNames.every(name => startedStepNames.includes(name));
 
-    if (!hasRunningSteps && allStepsStarted && run.status === 'running') {
+    if (!hasRunningSteps && allStepsStarted && allStepsCompleted && run.status !== 'completed') {
       updateFields.status = 'completed';
       updateFields.currentStep = 'completed';
       updateFields.endTime = new Date();
       updateFields.duration = completionData.duration || (Date.now() - new Date(run.startTime).getTime());
+      updateFields.error = null;
       console.log('Pipeline marked as completed');
 
       // Update currentStep to the running step
@@ -506,7 +538,7 @@ async function runSingleStep(runId, stepName, run) {
   if (stepName === 'enrich_ml' || stepName === 'upload_drive') {
     const folderName = generateRunFolderName(run.startTime);
     const exportDir = path.join(process.cwd(), 'data', 'exports', folderName);
-    
+
     // Verify files exist
     const fs = require('fs').promises;
     try {
