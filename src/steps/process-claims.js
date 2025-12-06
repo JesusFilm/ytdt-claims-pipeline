@@ -45,19 +45,22 @@ async function processClaims(context, claimsSource) {
 
   // Validate youtube_mcn_claims table for invalid media_component_id
   const [invalidMCIDs] = await mysql.query(`
-    SELECT DISTINCT media_component_id FROM youtube_mcn_claims v
-    WHERE v.media_component_id IS NOT NULL 
-    AND v.media_component_id != '-'
+    SELECT video_id, media_component_id, channel_id, wave, views 
+    FROM youtube_mcn_claims v
+    WHERE v.media_component_id != '-'
     AND v.media_component_id NOT IN (
       SELECT media_component_id FROM bi_view_media_component
     )
+    ${process.env.IGNORED_MCID_PATTERNS ?
+      `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',').join('|')}'`
+      : ''}
   `);
 
   // Validate youtube_mcn_claims table for invalid language_id
   const [invalidLanguageIDs] = await mysql.query(`
-    SELECT DISTINCT video_id, language_id FROM youtube_mcn_claims v
-    WHERE v.language_id IS NOT NULL 
-    AND v.language_id != '-'
+    SELECT video_id, language_id, channel_id 
+    FROM youtube_mcn_claims v
+    WHERE v.language_id != '-'
     AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
@@ -69,8 +72,8 @@ async function processClaims(context, claimsSource) {
   context.outputs.claimsProcessed[claimsSource] = {
     total: filtered.length,
     new: result.affectedRows,
-    invalidMCIDs: invalidMCIDs.map(row => row.media_component_id),
-    invalidLanguageIDs: invalidLanguageIDs.map(row => row.language_id)
+    invalidMCIDs,
+    invalidLanguageIDs
   };
 }
 
