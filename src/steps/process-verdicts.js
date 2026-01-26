@@ -110,7 +110,8 @@ async function processVerdictFile(mysql, filePath, type, context) {
       SELECT media_component_id FROM bi_view_media_component
     )
     ${process.env.IGNORED_MCID_PATTERNS ?
-      `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',').join('|')}'`
+      `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',')
+        .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')}'`
       : ''}
   `);
 
