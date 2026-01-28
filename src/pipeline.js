@@ -524,6 +524,10 @@ async function runSingleStep(runId, stepName, run) {
 
   // Reconnect to MySQL (needed for export_views)
   if (stepName === 'export_views') {
+    // Ensure VPN is connected first
+    const connectVPN = require('./steps/connect-vpn');
+    await connectVPN(context);
+    
     context.connections.mysql = await mysql.createPool({
       host: process.env.MYSQL_HOST,
       user: process.env.MYSQL_USER,
@@ -610,6 +614,12 @@ async function runSingleStep(runId, stepName, run) {
     // Cleanup connections
     if (context.connections.mysql) {
       await context.connections.mysql.end();
+      context.connections.mysql = null; // Prevent double-close
+    }
+    // Disconnect VPN if we connected it for export_views
+    if (stepName === 'export_views' && context.connections.vpnProcess) {
+      const disconnectVPN = require('./steps/disconnect-vpn');
+      await disconnectVPN(context);
     }
   }
 }
