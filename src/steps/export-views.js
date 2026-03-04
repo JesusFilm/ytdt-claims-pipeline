@@ -20,22 +20,31 @@ async function exportViews(context) {
 
   for (const view of views) {
     console.log(`Exporting ${view.name}...`);
-    
+
     // Query view
     const [rows] = await mysql.query(`SELECT * FROM ${view.name}`);
-    
+
     if (rows.length === 0) {
       console.log(`No data in ${view.name}`);
       continue;
     }
 
+    // Convert RowDataPacket objects to plain objects with string values
+    const plainRows = rows.map(row => {
+      const plain = {};
+      for (const [key, value] of Object.entries(row)) {
+        plain[key] = value === null || value === undefined ? '' : String(value);
+      }
+      return plain;
+    });
+
     // Convert to CSV
-    const csv = stringify(rows, { header: true });
-    
+    const csv = stringify(plainRows, { header: true });
+
     // Save file
     const filePath = path.join(exportDir, view.file);
     await fs.writeFile(filePath, csv);
-    
+
     context.outputs.exports[view.name] = {
       path: filePath,
       rows: rows.length

@@ -10,6 +10,7 @@ const uploadDrive = require('./steps/upload-drive');
 
 const { getDatabase } = require('./database');
 const { ObjectId } = require('mongodb');
+const { intervalToDuration, formatDuration } = require('date-fns');
 
 
 const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
@@ -31,15 +32,15 @@ function getPipelineSteps(files) {
       description: 'Creates backup copies of database tables before processing'
     },
     {
-      name: 'process_claims_matter_entertainment', 
-      fn: (ctx) => processClaims(ctx, 'matter_entertainment'), 
+      name: 'process_claims_matter_entertainment',
+      fn: (ctx) => processClaims(ctx, 'matter_entertainment'),
       condition: () => !!files.claims?.matter_entertainment,
       title: 'Process Claims (Matter Entertainment)',
       description: 'Imports and processes Matter Entertainment MCN claims'
     },
     {
-      name: 'process_claims_matter_2', 
-      fn: (ctx) => processClaims(ctx, 'matter_2'), 
+      name: 'process_claims_matter_2',
+      fn: (ctx) => processClaims(ctx, 'matter_2'),
       condition: () => !!files.claims?.matter_2,
       title: 'Process Claims (Matter 2)',
       description: 'Imports and processes Matter 2 MCN claims'
@@ -347,7 +348,15 @@ async function getCurrentPipelineStatus() {
       progress,
       steps,
       startTime: currentRun.startTime,
-      runId: currentRun._id.toString()
+      runId: currentRun._id.toString(),
+      lastRun: isRunning ? undefined : {
+        id: currentRun._id.toString(),
+        startTime: currentRun.startTime,
+        status: currentRun.status,
+        duration: currentRun.duration,
+        error: currentRun.error,
+        results: currentRun.results
+      }
     };
 
   } catch (error) {
@@ -383,21 +392,44 @@ async function syncRunState(runId, completionData = {}) {
     updateFields.endTime = new Date();
     updateFields.duration = Date.now() - new Date(run.startTime).getTime();
     console.log(`Pipeline ${runId} timed out after ${PIPELINE_TIMEOUT_MINUTES} minutes`);
+
+    // Update any running steps to timeout status
+    if (run.startedSteps) {
+      const updatedSteps = run.startedSteps.map(step => {
+        if (step.status === 'running') {
+          const stepElapsed = Date.now() - new Date(step.timestamp).getTime();
+          const duration = intervalToDuration({ start: 0, end: stepElapsed });
+          const formatted = formatDuration(duration, { format: ['minutes', 'seconds'] });
+
+          return {
+            ...step,
+            status: 'timeout',
+            duration: stepElapsed,
+            error: `Step exceeded ${PIPELINE_TIMEOUT_MINUTES} minute timeout after ${formatted}`
+          };
+        }
+        return step;
+      });
+      updateFields.startedSteps = updatedSteps;
+    }
+
   }
   // Check if pipeline can be marked complete
   else {
     const hasRunningSteps = run?.startedSteps?.some(step => step.status === 'running');
+    const allStepsCompleted = run?.startedSteps?.every(step => ['completed', 'skipped'].includes(step.status));
 
     // Count how many steps should have run (excluding skipped conditions)
     const allStepNames = getPipelineSteps(run.files || {}).map(s => s.name);
     const startedStepNames = (run.startedSteps || []).map(s => s.name);
     const allStepsStarted = allStepNames.every(name => startedStepNames.includes(name));
 
-    if (!hasRunningSteps && allStepsStarted && run.status === 'running') {
+    if (!hasRunningSteps && allStepsStarted && allStepsCompleted && run.status !== 'completed') {
       updateFields.status = 'completed';
       updateFields.currentStep = 'completed';
       updateFields.endTime = new Date();
       updateFields.duration = completionData.duration || (Date.now() - new Date(run.startTime).getTime());
+      updateFields.error = null;
       console.log('Pipeline marked as completed');
 
       // Update currentStep to the running step
@@ -461,9 +493,141 @@ function formatStepName(stepName) {
     .replace(/\b\w/g, l => l.toUpperCase());
 }
 
+// Run a single step with reconstructed context
+async function runSingleStep(runId, stepName, run) {
+  const db = getDatabase();
+  const mysql = require('mysql2/promise');
+  const path = require('path');
+  const { generateRunFolderName } = require('./lib/utils');
+
+  const stepMap = {
+    export_views: exportViews,
+    enrich_ml: enrichML,
+    upload_drive: uploadDrive
+  };
+
+  const stepFn = stepMap[stepName];
+  if (!stepFn) {
+    throw new Error(`Unknown step: ${stepName}`);
+  }
+
+  // Reconstruct context
+  const context = {
+    files: run.files,
+    options: {},
+    connections: {},
+    outputs: run.results || {},
+    status: stepName,
+    startTime: new Date(run.startTime).getTime(),
+    runId: new ObjectId(runId).toString()
+  };
+
+  // Reconnect to MySQL (needed for export_views)
+  if (stepName === 'export_views') {
+    // Ensure VPN is connected first
+    const connectVPN = require('./steps/connect-vpn');
+    await connectVPN(context);
+    
+    context.connections.mysql = await mysql.createPool({
+      host: process.env.MYSQL_HOST,
+      user: process.env.MYSQL_USER,
+      password: process.env.MYSQL_PASSWORD,
+      database: process.env.MYSQL_DATABASE,
+      waitForConnections: true,
+      connectionLimit: 10,
+    });
+  }
+
+  // Rebuild export paths for enrich_ml and upload_drive
+  if (stepName === 'enrich_ml' || stepName === 'upload_drive') {
+    const folderName = generateRunFolderName(run.startTime);
+    const exportDir = path.join(process.cwd(), 'data', 'exports', folderName);
+
+    // Verify files exist
+    const fs = require('fs').promises;
+    try {
+      await fs.access(exportDir);
+    } catch (error) {
+      throw new Error(`Export directory not found: ${exportDir}. Cannot restart ${stepName}.`);
+    }
+
+    // Rebuild exports metadata if needed
+    if (!context.outputs.exports && stepName === 'enrich_ml') {
+      context.outputs.exports = {
+        export_unprocessed_claims: {
+          path: path.join(exportDir, 'unprocessed_claims.csv')
+        }
+      };
+    }
+  }
+
+  const stepIndex = run.startedSteps.findIndex(s => s.name === stepName);
+  const stepStartTime = Date.now();
+
+  try {
+    // Run step
+    const result = await stepFn(context);
+    const status = Object.keys(result || {}).length ? result.status : 'completed';
+    const stepDuration = Date.now() - stepStartTime;
+
+    // Update step status
+    await db.collection('pipeline_runs').updateOne(
+      { _id: new ObjectId(runId) },
+      {
+        $set: {
+          [`startedSteps.${stepIndex}.status`]: status,
+          [`startedSteps.${stepIndex}.duration`]: stepDuration,
+          [`startedSteps.${stepIndex}.error`]: null,
+          [`startedSteps.${stepIndex}.completed_at`]: new Date()
+        }
+      }
+    );
+
+    // Update results if step produced outputs
+    if (result) {
+      await db.collection('pipeline_runs').updateOne(
+        { _id: new ObjectId(runId) },
+        { $set: { [`results.${stepName}`]: result } }
+      );
+    }
+
+    await syncRunState(new ObjectId(runId));
+    console.log(`✓ Step ${stepName} restarted successfully`);
+
+  } catch (stepError) {
+    // Update step with error
+    await db.collection('pipeline_runs').updateOne(
+      { _id: new ObjectId(runId) },
+      {
+        $set: {
+          [`startedSteps.${stepIndex}.status`]: 'error',
+          [`startedSteps.${stepIndex}.error`]: stepError.message,
+          [`startedSteps.${stepIndex}.completed_at`]: new Date()
+        }
+      }
+    );
+
+    await syncRunState(new ObjectId(runId));
+    throw stepError;
+
+  } finally {
+    // Cleanup connections
+    if (context.connections.mysql) {
+      await context.connections.mysql.end();
+      context.connections.mysql = null; // Prevent double-close
+    }
+    // Disconnect VPN if we connected it for export_views
+    if (stepName === 'export_views' && context.connections.vpnProcess) {
+      const disconnectVPN = require('./steps/disconnect-vpn');
+      await disconnectVPN(context);
+    }
+  }
+}
+
 module.exports = {
   runPipeline,
   getCurrentPipelineStatus,
   syncRunState,
-  checkTimeout
+  checkTimeout,
+  runSingleStep
 };

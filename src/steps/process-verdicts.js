@@ -103,20 +103,22 @@ async function processVerdictFile(mysql, filePath, type, context) {
   `);
 
   // Get invalid MCIDs
-  const [invalidMCIDsData] = await mysql.query(`
-    SELECT media_component_id FROM ${tableName} v
-    WHERE v.media_component_id IS NOT NULL 
-    AND v.media_component_id != '-'
+  const [invalidMCIDs] = await mysql.query(`
+    SELECT * FROM ${tableName} v
+    WHERE v.media_component_id != '-'
     AND v.media_component_id NOT IN (
       SELECT media_component_id FROM bi_view_media_component
     )
+    ${process.env.IGNORED_MCID_PATTERNS ?
+      `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',')
+        .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')}'`
+      : ''}
   `);
 
   // Get invalid language IDs
-  const [invalidLanguageIDsData] = await mysql.query(`
-    SELECT video_id, language_id FROM ${tableName} v
-    WHERE v.language_id IS NOT NULL 
-    AND v.language_id != '-'
+  const [invalidLanguageIDs] = await mysql.query(`
+    SELECT * FROM ${tableName} v
+    WHERE v.language_id != '-'
     AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
@@ -124,8 +126,8 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
-    invalidMCIDs: invalidMCIDsData.map(row => row.media_component_id),
-    invalidLanguageIDs: invalidLanguageIDsData.map(row => row.language_id)
+    invalidMCIDs,
+    invalidLanguageIDs
   };
 }
 
