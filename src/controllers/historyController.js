@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
-const { syncRunState } = require('../pipeline');
+const { syncRunState, runPipeline } = require('../pipeline');
 const { createAuthedClient } = require('../lib/authtedClient');
 
 
@@ -82,9 +82,6 @@ async function retryRun(req, res) {
         }
       }
     );
-
-    // Start pipeline with existing ID
-    const { runPipeline } = require('../pipeline');
 
     setImmediate(() => {
       runPipeline(originalRun.files, {}, runId)
@@ -173,8 +170,79 @@ async function stopRun(req, res) {
   }
 }
 
+// Restart a specific step
+async function restartStep(req, res) {
+  try {
+    const { id: runId, stepName } = req.params;
+    const RESTARTABLE_STEPS = ['export_views', 'enrich_ml', 'upload_drive'];
+
+    // Validate step is restartable
+    if (!RESTARTABLE_STEPS.includes(stepName)) {
+      return res.status(400).json({
+        error: `Step '${stepName}' cannot be restarted. Only ${RESTARTABLE_STEPS.join(', ')} can be restarted individually.`
+      });
+    }
+
+    const db = getDatabase();
+    const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
+
+    if (!run) {
+      return res.status(404).json({ error: 'Run not found' });
+    }
+
+    // Check if step exists in this run
+    const stepIndex = run.startedSteps?.findIndex(s => s.name === stepName);
+    if (stepIndex === -1) {
+      return res.status(404).json({ error: `Step '${stepName}' not found in this run` });
+    }
+
+    const step = run.startedSteps[stepIndex];
+    
+    // Only allow restart if step is completed, failed, or error
+    if (!['completed', 'failed', 'error', 'running', 'timeout'].includes(step.status)) {
+      return res.status(400).json({
+        error: `Cannot restart step with status '${step.status}'`
+      });
+    }
+
+    // Import step runner
+    const { runSingleStep } = require('../pipeline');
+
+    // Mark step as running
+    await db.collection('pipeline_runs').updateOne(
+      { _id: new ObjectId(runId) },
+      {
+        $set: {
+          [`startedSteps.${stepIndex}.status`]: 'running',
+          [`startedSteps.${stepIndex}.restarted_at`]: new Date()
+        }
+      }
+    );
+
+    // Run step in background
+    setImmediate(() => {
+      runSingleStep(runId, stepName, run)
+        .catch(error => {
+          console.error(`Step restart error (${stepName}):`, error);
+        });
+    });
+
+    res.json({
+      message: `Step '${stepName}' restart initiated`,
+      runId: runId,
+      stepName: stepName
+    });
+
+  } catch (error) {
+    console.error('Restart step error:', error);
+    res.status(500).json({ error: 'Failed to restart step' });
+  }
+}
+
+
 module.exports = {
   getHistory,
   retryRun,
-  stopRun
+  stopRun,
+  restartStep
 };

@@ -12,6 +12,7 @@ function createApiRoutes(pipelineStatus) {
   router.get('/runs/history', historyController.getHistory);
   router.post('/runs/:id/retry', historyController.retryRun);
   router.post('/runs/:id/stop', historyController.stopRun);
+  router.post('/runs/:id/steps/:stepName/restart', historyController.restartStep);
 
   // Download routes  
   router.get('/uploads/:filename', exportsController.downloadUpload);
