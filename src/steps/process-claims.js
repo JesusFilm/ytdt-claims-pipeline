@@ -45,8 +45,9 @@ async function processClaims(context, claimsSource) {
 
   // Validate youtube_mcn_claims table for invalid media_component_id
   const [invalidMCIDs] = await mysql.query(`
-    SELECT video_id, media_component_id, channel_id, wave, views 
+    SELECT v.video_id, v.media_component_id, v.channel_id, v.wave, v.views 
     FROM youtube_mcn_claims v
+    INNER JOIN ${tableName} t ON v.video_id = t.video_id
     WHERE v.media_component_id != '-'
     AND v.media_component_id NOT IN (
       SELECT media_component_id FROM bi_view_media_component
@@ -59,8 +60,9 @@ async function processClaims(context, claimsSource) {
 
   // Validate youtube_mcn_claims table for invalid language_id
   const [invalidLanguageIDs] = await mysql.query(`
-    SELECT video_id, language_id, channel_id 
+    SELECT v.video_id, v.language_id, v.channel_id 
     FROM youtube_mcn_claims v
+    INNER JOIN ${tableName} t ON v.video_id = t.video_id
     WHERE v.language_id != '-'
     AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
