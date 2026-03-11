@@ -1,8 +1,51 @@
-# Deployment Configuration
+# Production — Google Compute Engine (GCE)
 
-## Overview
+## 1. Deploy database
 
-This deployment uses **local source code** and **local configuration** - no GitHub, no Secret Manager. 
+**Step 1) Create MongoDB VM**
+
+```shell
+gcloud compute instances create ytdt-mongodb \
+  --image-family=cos-stable \
+  --image-project=cos-cloud \
+  --metadata-from-file user-data=infrastructure/gcp/cloud-config-mongodb.yaml \
+  --zone=us-east1-b \
+  --machine-type=e2-small \
+  --boot-disk-size=30GB
+```
+
+**Step 2) Make MongoDB accessible from Cloud Run**
+
+Private GCE IPs are not accessible from Cloud Run without VPC connector:
+
+```shell
+gcloud compute networks vpc-access connectors create ytdt-connector \
+  --network default \
+  --region us-east1 \
+  --range 10.8.0.0/28
+```
+
+`--range 10.8.0.0/28` is an IP range for the VPC connector that shouldn't overlap with existing subnets.
+Check your existing subnets to find a safe range:
+
+```shell
+gcloud compute networks subnets list --network=default
+```
+
+**Step 3) Set MONGODB_URI**
+
+Set `MONGODB_URI=mongodb://<INTERNAL_IP>:27017/ytdt-pipeline` in `.env.production`.
+Get internal VM IP from:
+
+```shell
+gcloud compute instances describe ytdt-mongodb
+```
+
+## 2. Deploy ytdt-claims-pipeline
+
+### Deployment Configuration
+
+This deployment uses **local source code** and **local configuration** — no GitHub, no Secret Manager.
 
 The deploy script (`infrastructure/gcp/deploy.sh`):
 
@@ -13,7 +56,7 @@ The deploy script (`infrastructure/gcp/deploy.sh`):
 
 The VM provisioning (`cloud-config.yaml`):
 
-1. Installs dependencies: Node.js v20, Nginx, OpenVPN, Miniconda
+1. Installs dependencies: Node.js v20, Nginx, Miniconda
 2. Downloads and extracts ytdt-claims-pipeline source from GCS
 3. Runs `npm install`
 4. Clones YT-Validator repo and creates conda environment
@@ -32,16 +75,15 @@ The VM provisioning (`cloud-config.yaml`):
 
 All secrets and configuration come from `.env.production`.
 
-## Prerequisites
+### Prerequisites
 
 - `gcloud` CLI installed and authenticated
-- `.env.production` file with **all** required environment variables including secrets 
-  from both `ytdy-claims-pipeline` (see `src/.env.example`) and `YT-Validator`.
+- `.env.production` file with **all** required environment variables including secrets
+  from both `ytdt-claims-pipeline` (see `src/.env.example`) and `YT-Validator`.
 - `config/` directory with:
-  - `config/vpn/client.ovpn` (VPN configuration)
-  - `config/service-account-key.json` (Google service account for Drive access)
+  - `config/service-account-key.json` (Google service account for BigQuery and Drive access)
 
-## Deploy
+### Deploy
 
 ```bash
 # Env variables - Cf. `infrastructure/gcp/deploy.sh`.
@@ -54,6 +96,19 @@ export LETSENCRYPT_STAGING="--staging"
 
 # From project root
 ./infrastructure/gcp/deploy.sh
+```
+
+## 3. Load historical BigQuery data (only once, gets updated by verdict work)
+
+Upload the MCN claims export to GCS and load into BigQuery:
+```shell
+gsutil cp youtube_mcn_claims_YYYYMMDD.csv gs://ytdt-claims/
+
+bq load --max_bad_records=0 --source_format=CSV \
+  --field_delimiter='|' --quote='"' --allow_quoted_newlines \
+  --skip_leading_rows=1 \
+  --schema config/schemas/youtube_mcn_claims_schema.json \
+  <BQ_DATASET>.youtube_mcn_claims gs://ytdt-claims/youtube_mcn_claims_YYYYMMDD.csv
 ```
 
 ## Troubleshooting
@@ -130,7 +185,7 @@ sudo systemctl status docker
 sudo journalctl -u cloud-final -n 100
 ```
 
-5. If Docker is missing, the setup script failed early. Run it manually:
+5. If setup failed early, run manually:
 ```bash
 sudo /usr/local/bin/setup-vm.sh
 ```

@@ -2,11 +2,12 @@ const fs = require('fs').promises;
 const path = require('path');
 const { stringify } = require('csv-stringify/sync');
 const { generateRunFolderName } = require('../lib/utils');
+const { getBigQueryClient, tableRef } = require('../lib/bigquery');
 
 
 async function exportViews(context) {
 
-  const mysql = context.connections.mysql;
+  const bq = getBigQueryClient();
   const exportDir = path.join(process.cwd(), 'data', 'exports', generateRunFolderName(context.startTime));
   await fs.mkdir(exportDir, { recursive: true });
 
@@ -22,14 +23,14 @@ async function exportViews(context) {
     console.log(`Exporting ${view.name}...`);
 
     // Query view
-    const [rows] = await mysql.query(`SELECT * FROM ${view.name}`);
+    const [rows] = await bq.query({ query: `SELECT * FROM ${tableRef(view.name)}` });
 
     if (rows.length === 0) {
       console.log(`No data in ${view.name}`);
       continue;
     }
 
-    // Convert RowDataPacket objects to plain objects with string values
+    // Convert row objects to plain objects with string values for CSV export
     const plainRows = rows.map(row => {
       const plain = {};
       for (const [key, value] of Object.entries(row)) {

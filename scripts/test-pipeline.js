@@ -1,43 +1,22 @@
 #!/usr/bin/env node
-
-/*
-# Test with or without VPN (for local MySQL)
-sudo node test-pipeline.js [--skip-vpn]
-*/
+/**
+ * Test script for YouTube MCN Claims Pipeline
+ * This script performs basic tests on the pipeline steps and runs a full end-to-end test with sample data.
+ * It checks for required environment variables, BigQuery connectivity, and validates the processing of claims and verdicts.
+ * 
+ * Usage: 
+ *   1. Ensure exists .env file with the necessary configuration (copy from .env.example).
+ *   2. Run script: `node scripts/test-pipeline.js`.
+ */
 
 require('dotenv').config();
 const fs = require('fs').promises;
 const path = require('path');
 const { runPipeline } = require('../src/pipeline');
+const { connectToDatabase } = require('../src/database');
 
-// Create test CSV files
-async function createTestFiles() {
-  const testDir = path.join(__dirname, '..', 'data', 'test');
-  await fs.mkdir(testDir, { recursive: true });
 
-  // Create a minimal claims CSV
-  const claimsCSV = `claim_id,video_id,channel_id,asset_labels,claim_origin,views,video_title,channel_display_name
-TEST001,abc123,UCtest123,"Jesus Film Project",WEB_UPLOAD,1000,"Test Video","Test Channel"
-TEST002,def456,UCtest456,"Jesus Film",MANUAL_CLAIM,500,"Another Video","Another Channel"`;
-
-  const claimsPath = path.join(testDir, 'test_claims.csv');
-  await fs.writeFile(claimsPath, claimsCSV);
-  console.log('✓ Created test claims file');
-
-  // Create a minimal verdicts CSV
-  const verdictsCSV = `video_id,verdict,media_component_id,language_id,wave,no_code
-abc123,Y,MC001,529,1,
-def456,N,MC002,1818,2,`;
-
-  const mcnVerdictsPath = path.join(testDir, 'test_mcn_verdicts.csv');
-  await fs.writeFile(mcnVerdictsPath, verdictsCSV);
-  console.log('✓ Created test verdicts file');
-
-  return {
-    claims: claimsPath,
-    mcnVerdicts: mcnVerdictsPath
-  };
-}
+const TEST_DIR = path.join(__dirname, '..', 'data', 'test');
 
 // Test individual steps
 async function testSteps() {
@@ -45,9 +24,9 @@ async function testSteps() {
 
   // Test 1: Check environment variables
   console.log('1. Checking environment variables...');
-  const requiredEnvs = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
+  const requiredEnvs = ['BQ_PROJECT_ID', 'BQ_DATASET'];
   const missingEnvs = requiredEnvs.filter(env => !process.env[env]);
-  
+
   if (missingEnvs.length > 0) {
     console.error('❌ Missing environment variables:', missingEnvs);
     console.log('   Please check your .env file');
@@ -55,38 +34,52 @@ async function testSteps() {
   }
   console.log('✓ All required environment variables present');
 
-  // Test 2: Check VPN config file
-  console.log('\n2. Checking VPN config...');
-  const vpnConfigPath = process.env.VPN_CONFIG_FILE || './config/vpn/client.ovpn';
+  // Test 2: Check BigQuery connection
+  console.log('\n2. Testing BigQuery connection...');
   try {
-    await fs.access(vpnConfigPath);
-    console.log('✓ VPN config file found');
+    const { getBigQueryClient, BQ_DATASET } = require('../src/lib/bigquery');
+    const bq = getBigQueryClient();
+    const [datasets] = await bq.getDatasets();
+    const found = datasets.some(d => d.id === BQ_DATASET);
+    if (found) {
+      console.log(`✓ BigQuery dataset '${BQ_DATASET}' found`);
+    } else {
+      console.error(`❌ BigQuery dataset '${BQ_DATASET}' not found`);
+      return false;
+    }
   } catch (error) {
-    console.error('❌ VPN config not found at:', vpnConfigPath);
-    console.log('   You can skip VPN for testing by commenting out the connect_vpn step');
+    console.error('❌ BigQuery connection failed:', error.message);
+    console.log('   Check service account key and BQ_PROJECT_ID env');
+    return false;
   }
 
-  // Test 3: Test MySQL connection (without VPN for local testing)
-  console.log('\n3. Testing MySQL connection...');
-  if (process.env.MYSQL_HOST === 'localhost' || process.env.SKIP_VPN === 'true') {
-    const mysql = require('mysql2/promise');
+  // Test 3: Check service account key
+  console.log('\n3. Checking service account key...');
+  const keyPath = process.env.BQ_KEY_FILE || './config/service-account-key.json';
+  try {
+    await fs.access(keyPath);
+    console.log('✓ Service account key found');
+  } catch (error) {
+    console.error('❌ Service account key not found at:', keyPath);
+    return false;
+  }
+
+  // Test 4: Check test data files exist
+  console.log('\n4. Checking test data files...');
+  const testFiles = [
+    'test_claims_matter_entertainment.csv',
+    'test_claims_matter_2.csv',
+    'test_mcn_verdicts.csv',
+    'test_jfm_verdicts.csv'
+  ];
+  for (const file of testFiles) {
     try {
-      const connection = await mysql.createConnection({
-        host: process.env.MYSQL_HOST,
-        user: process.env.MYSQL_USER,
-        password: process.env.MYSQL_PASSWORD,
-        database: process.env.MYSQL_DATABASE
-      });
-      
-      const [rows] = await connection.execute('SELECT 1 as test');
-      console.log('✓ MySQL connection successful:', rows[0]);
-      await connection.end();
+      await fs.access(path.join(TEST_DIR, file));
+      console.log(`✓ ${file}`);
     } catch (error) {
-      console.error('❌ MySQL connection failed:', error.message);
-      console.log('   Check your MySQL credentials');
+      console.error(`❌ ${file} not found in ${TEST_DIR}`);
+      return false;
     }
-  } else {
-    console.log('⚠ Skipping MySQL test (requires VPN for remote host)');
   }
 
   return true;
@@ -95,26 +88,23 @@ async function testSteps() {
 // Run full pipeline test
 async function testFullPipeline() {
   console.log('\n=== Testing Full Pipeline ===\n');
-  
+
   try {
-    // Create test files
-    const testFiles = await createTestFiles();
-    
+
     // Prepare test context
     const files = {
-      claims: testFiles.claims,
-      claimsSource: 'test_source',
-      mcnVerdicts: testFiles.mcnVerdicts,
-      jfmVerdicts: null
+      claims: {
+        matter_entertainment: path.join(TEST_DIR, 'test_claims_matter_entertainment.csv'),
+        matter_2: path.join(TEST_DIR, 'test_claims_matter_2.csv')
+      },
+      mcnVerdicts: path.join(TEST_DIR, 'test_mcn_verdicts.csv'),
+      jfmVerdicts: path.join(TEST_DIR, 'test_jfm_verdicts.csv')
     };
 
-    console.log('\nStarting pipeline with test files...\n');
-    
     // Run pipeline
-    const result = await runPipeline(files, { 
-      skipVPN: process.env.SKIP_VPN === 'true',
-      testMode: true 
-    });
+    console.log('\nStarting pipeline with test files...\n');
+    await connectToDatabase();
+    const result = await runPipeline(files, { testMode: true });
 
     console.log('\n✅ Pipeline completed successfully!');
     console.log('Result:', JSON.stringify(result, null, 2));
@@ -130,32 +120,24 @@ async function main() {
   console.log('YouTube MCN Pipeline Test\n');
   console.log('========================\n');
 
-  // Check if we should skip VPN
-  if (process.argv.includes('--skip-vpn')) {
-    process.env.SKIP_VPN = 'true';
-    console.log('ℹ Skipping VPN connection for testing\n');
-  }
-
-  // Run tests
   const stepsOk = await testSteps();
-  
+
   if (!stepsOk) {
     console.log('\n⚠ Fix the issues above before running the full pipeline');
     process.exit(1);
   }
 
-  // Ask user if they want to run full pipeline
   console.log('\n-----------------------------------');
   console.log('Ready to test full pipeline?');
-  console.log('This will create test data in your database.');
-  console.log('Press Ctrl+C to cancel, or Enter to continue...');
-  
+  console.log('This will create test data in BigQuery.');
+  console.log('Press Enter to continue, or Ctrl+C to cancel...\n');
+
   await new Promise(resolve => {
     process.stdin.once('data', resolve);
   });
 
   await testFullPipeline();
-  
+
   console.log('\nTest complete!');
   process.exit(0);
 }

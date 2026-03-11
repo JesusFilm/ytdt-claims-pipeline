@@ -1,13 +1,13 @@
 # ytdt-claims-pipeline
 
-Node.js API server.
+Node.js API server for processing YouTube MCN claims, verdicts, and exporting data to Google Drive.
 
 
 ## Development
 
-### Requisites
+### Prerequisites
 
-1. **MongoDB** 
+1. **MongoDB**
 
 ```shell
 docker run -d \
@@ -18,42 +18,46 @@ docker run -d \
   mongo:6
 ```
 
-2. **OpenVPN** – Setup, start, and test  
+2. **BigQuery** — Service account with BigQuery Data Editor + Job User roles
 
-Drop `ca.crt`, `client.crt`, `client.key`, `client.ovpn` into `./config/vpn`,  
-then install OpenVPN binary and dry-test (one-time):
+Download the service account key to `config/service-account-key.json`. This is also used for Google Drive uploads.
+The service account (`config/service-account-key.json`) needs:
 
-```shell
-brew install openvpn
-sudo openvpn --config ./config/vpn/client.ovpn
-mkdir logs/
-```
+- **BigQuery Data Editor** + **BigQuery Job User** on the `BQ_DATASET` dataset (read/write pipeline tables)
+- **BigQuery Data Viewer** on the `core_analytics_views` dataset (read validation tables)
+- **Google Drive** — share the target shared drive with the service account email as a Contributor
 
-3. **Google Drive** - Optional (for `upload_drive` step)
+3. **Google Drive** — Optional (for `upload_drive` step)
 
-- Create Service Account on GCP and download to `config/service-account-key.json`
-- Enable the Google Drive API
+Enable the Google Drive API for the same service account.
 
-4. **YT-Validator** - Inovked during ML Enrichment step
+4. **YT-Validator** — Invoked during ML Enrichment step
 
 Refer to [setup instructions](https://github.com/matthew-jf/YT-Validator/blob/chore/cli-api-wrapper/README.md).
+
+### Environment
+
+Copy and configure:
+
+```shell
+cp src/.env.example .env
+```
+
+To generate a JWT secret:
+```shell
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
 
 ### API Server
 
 Notes: 
-1. Requies sudo privileges to spawn the VPN client.
-2. Allow up to 8GB JS heap size to run safely `--max-old-space-size=8192"`
+1. Allows up to 8GB JS heap size to run safely via `--max-old-space-size=8192"`
 
 ```shell
-export \
-
-  # Optional envs
-  GOOGLE_DRIVE_NAME=youtube_exports 
-
 yarn dev
 ```
 
-eg. `.vscode/launch.json`for debugging:
+eg. `.vscode/launch.json` for debugging:
 ```json
 {
     "version": "0.2.0",
@@ -62,8 +66,8 @@ eg. `.vscode/launch.json`for debugging:
             "type": "pwa-node",
             "request": "launch",
             "name": "Dev (watch mode)",
-            "runtimeExecutable": "sudo",
-            "runtimeArgs": [ "-E", "./node_modules/.bin/nodemon", "--max-old-space-size=8192" ],
+            "runtimeExecutable": "./node_modules/.bin/nodemon",
+            "runtimeArgs": ["--max-old-space-size=8192"],
             "program": "${workspaceFolder}/src/server.js",
             "restart": true,
             "envFile": "${workspaceFolder}/.env",
@@ -72,12 +76,10 @@ eg. `.vscode/launch.json`for debugging:
                 "GOOGLE_DRIVE_NAME": "youtube_exports",
                 "PIPELINE_TIMEOUT_MINUTES": "30"
                 // Etc., check src/.env.example
-            },
+                },
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
-            "skipFiles": [
-                "<node_internals>/**"
-            ]
+            "skipFiles": ["<node_internals>/**"]
         }
     ]
 }
@@ -120,65 +122,16 @@ curl -X POST $BASE_URL/api/run \
 curl http://localhost:3000/api/status
 ```
 
-```sql
-SELECT claim_report_source, COUNT(*) 
-FROM youtube_mcn_claims 
-GROUP BY claim_report_source;
-```
-
-### Test Pipeline: Using supplied script (generates test data)
+### Test Pipeline: Using supplied script
 
 ```shell
-# Using VPN
-sudo node scripts/test-pipeline.js
-
-# Using local MySQL
-SKIP_VPN=true sudo node scripts/test-pipeline.js
+node scripts/test-pipeline.js
 ```
 
 
-## Production - Google Cloud Engine (GCE)
+## Production
 
-### 1. Deploy database
-
-**Step 1) Create MongoDB VM on Google Cloud Engine (GCE)**
-
-```shell
-gcloud compute instances create ytdt-mongodb \
-  --image-family=cos-stable \
-  --image-project=cos-cloud \
-  --metadata-from-file user-data=infrastructure/gcp/cloud-config-mongodb.yaml \
-  --zone=us-east1-b \
-  --machine-type=e2-small \
-  --boot-disk-size=30GB
-```
-
-**Step 2) Make MongoDB accessible from Cloud Run Cloud**
-
-* Private GCE IPs are not accessible from Cloud Run without VPC connector!
-
-```shell
-gcloud compute networks vpc-access connectors create ytdt-connector \
-  --network default \
-  --region us-east1 \
-  --range 10.8.0.0/28
-```
-
-* `--range 10.8.0.0/28` below is an IP range for the VPC connector that shouldn't overlap with our existing subnets.
-Check your existing subnets to find a safe range:
-```shell
-gcloud compute networks subnets list --network=default
-```
-
-**Step 3) Set MONGODB_URI env to production database**
-
-Set `MONGODB_URI=mongodb://<INTERNAL_IP>:27017/ytdt-pipeline` in `.env.production`.
-Get internal VM IP from:
-```shell
-gcloud compute instances describe ytdt-mongodb 
-```
-
-### 2. [Deploy ytdt-claims-pipeline](./docs/deploy.md) to GCE.
+See [docs/deploy.md](./docs/deploy.md).
 
 
 ## Integrations

@@ -1,3 +1,3 @@
-video_id,verdict,bogus_column,language_id,made_up_field,no_code
-abc123,Y,fake_data,529,invalid_data,
-def456,N,more_fake,1818,wrong_info,I
+video_id,verdict,nonsense_col,wave,fictional_field,media_component_id
+vid_bad_jfm_001,Y,bad_value,1,fake_info,1_496-jf6301
+vid_bad_jfm_002,N,wrong_data,2,invalid_col,1_584-jf6301

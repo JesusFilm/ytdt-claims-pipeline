@@ -1,5 +1,3 @@
 video_id,verdict,media_component_id,language_id,wave,no_code
-vid_me_001,Y,MC001,529,1,
-vid_me_002,N,MC002,1818,2,
-vid_m2_001,Y,MC005,529,1,
-vid_m2_002,N,MC006,1818,2,
+vid_me_001,Y,1_529-jf6301,529,1,
+-vid_me_002,N,1_21028-jf6301,21028,2,NC-DUP

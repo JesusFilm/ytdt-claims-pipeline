@@ -3,26 +3,23 @@ const path = require('path');
 const { format } = require('date-fns');
 const csv = require('csv-parse/sync');
 const { cleanRow } = require('../lib/utils');
+const { getBigQueryClient, getDataset, getTable, tableRef, coreTableRef, escapeValue } = require('../lib/bigquery');
 
 
 async function processVerdicts(context) {
 
-  const mysql = context.connections.mysql;
-
   // Process MCN verdicts
   if (context.files.mcnVerdicts) {
     await processVerdictFile(
-      mysql,
       context.files.mcnVerdicts,
       'mcn',
       context
     );
   }
 
-  // Process JFM verdicts  
+  // Process JFM verdicts
   if (context.files.jfmVerdicts) {
     await processVerdictFile(
-      mysql,
       context.files.jfmVerdicts,
       'jfm',
       context
@@ -30,20 +27,29 @@ async function processVerdicts(context) {
   }
 }
 
-async function processVerdictFile(mysql, filePath, type, context) {
+async function processVerdictFile(filePath, type, context) {
+  const bq = getBigQueryClient();
+  const dataset = getDataset();
   const tableName = `${type}_verdicts_${format(new Date(), 'yyyyMMdd')}`;
 
   // Create verdicts table
-  await mysql.query(`
-    CREATE TABLE IF NOT EXISTS ${tableName} (
-      video_id VARCHAR(191) PRIMARY KEY,
-      verdict VARCHAR(1),
-      media_component_id VARCHAR(255),
-      language_id VARCHAR(255),
-      wave VARCHAR(100),
-      no_code VARCHAR(255)
-    )
-  `);
+  const [exists] = await getTable(tableName).exists();
+  if (!exists) {
+    await dataset.createTable(tableName, {
+      schema: {
+        fields: [
+          { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+          { name: 'verdict', type: 'STRING' },
+          { name: 'media_component_id', type: 'STRING' },
+          { name: 'language_id', type: 'STRING' },
+          { name: 'wave', type: 'STRING' },
+          { name: 'no_code', type: 'STRING' },
+        ]
+      }
+    });
+  } else {
+    await bq.query({ query: `TRUNCATE TABLE ${tableRef(tableName)}` });
+  }
 
   // Read and parse CSV
   const fileContent = await fs.readFile(filePath, 'utf8');
@@ -62,67 +68,78 @@ async function processVerdictFile(mysql, filePath, type, context) {
     };
   });
 
-  // Insert verdicts
-  for (let i = 0; i < cleaned.length; i += 1000) {
-    const batch = cleaned.slice(i, i + 1000);
+  // Insert via DML query (immediately available for MERGE, unlike streaming insert)
+  const BATCH_SIZE = 1000;
+  for (let i = 0; i < cleaned.length; i += BATCH_SIZE) {
+    const batch = cleaned.slice(i, i + BATCH_SIZE);
     const values = batch.map(r =>
-      `(${mysql.escape(r.video_id)}, ${mysql.escape(r.verdict)}, 
-        ${mysql.escape(r.media_component_id)}, ${mysql.escape(r.language_id)}, 
-        ${mysql.escape(r.wave)}, ${mysql.escape(r.no_code)})`
-    ).join(',');
+      `(${escapeValue(r.video_id)}, ${escapeValue(r.verdict)}, ${escapeValue(r.media_component_id)}, ${escapeValue(r.language_id)}, ${escapeValue(r.wave)}, ${escapeValue(r.no_code)})`
+    ).join(',\n');
 
-    await mysql.query(`
-      INSERT INTO ${tableName} 
-      (video_id, verdict, media_component_id, language_id, wave, no_code)
-      VALUES ${values}
-      ON DUPLICATE KEY UPDATE verdict = VALUES(verdict)
-    `);
+    await bq.query({
+      query: `INSERT INTO ${tableRef(tableName)} (video_id, verdict, media_component_id, language_id, wave, no_code) VALUES ${values}`
+    });
   }
 
-  // Update main tables
+  // Merge verdicts into target table
   const targetTable = type === 'mcn' ? 'youtube_mcn_claims' : 'youtube_channel_videos';
   const timestampField = type === 'mcn' ? 'verdict_last_updated_date' : 'updated_at';
 
-  await mysql.query(`
-    UPDATE ${targetTable} c, ${tableName} v
-    SET c.verdict = CASE WHEN v.verdict IS NOT NULL THEN v.verdict ELSE c.verdict END,
-        c.wave = CASE WHEN v.wave IS NOT NULL THEN v.wave ELSE c.wave END,
-        c.media_component_id = CASE 
-          WHEN v.media_component_id IS NULL THEN c.media_component_id
-          WHEN v.media_component_id = '-' THEN NULL 
-          ELSE v.media_component_id 
-        END,
-        c.language_id = CASE 
-          WHEN v.language_id IS NULL THEN c.language_id
-          WHEN v.language_id = '-' THEN NULL 
-          ELSE v.language_id 
-        END,
-        c.no_code = CASE WHEN v.no_code IS NOT NULL THEN v.no_code ELSE c.no_code END,
-        c.${timestampField} = NOW()
-    WHERE c.video_id = v.video_id
-  `);
+  const mergeQuery = `
+    MERGE ${tableRef(targetTable)} AS c
+    USING (
+      SELECT * FROM ${tableRef(tableName)}
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY video_id ORDER BY video_id) = 1
+    ) AS v
+    ON c.video_id = v.video_id
+    WHEN MATCHED THEN UPDATE SET
+      c.verdict = COALESCE(v.verdict, c.verdict),
+      c.wave = COALESCE(v.wave, c.wave),
+      c.media_component_id = CASE
+        WHEN v.media_component_id IS NULL THEN c.media_component_id
+        WHEN v.media_component_id = '-' THEN NULL
+        ELSE v.media_component_id
+      END,
+      c.language_id = CASE
+        WHEN v.language_id IS NULL THEN c.language_id
+        WHEN v.language_id = '-' THEN NULL
+        ELSE v.language_id
+      END,
+      c.no_code = COALESCE(v.no_code, c.no_code),
+      c.${timestampField} = CURRENT_TIMESTAMP()
+  `;
 
-  // Get invalid MCIDs
-  const [invalidMCIDs] = await mysql.query(`
-    SELECT * FROM ${tableName} v
-    WHERE v.media_component_id != '-'
+  const [mergeJob] = await bq.createQueryJob({ query: mergeQuery });
+  await mergeJob.getQueryResults();
+  const [jobMetadata] = await mergeJob.getMetadata();
+  const mergeStats = jobMetadata.statistics.query.dmlStats || {};
+  console.log(`Merged ${type} verdicts into ${targetTable}: ${mergeStats.insertedRowCount || 0} inserted, ${mergeStats.updatedRowCount || 0} updated`);
+
+  // Validate invalid MCIDs
+  const invalidMCIDQuery = `
+    SELECT * FROM ${tableRef(tableName)} v
+    WHERE v.media_component_id IS NOT NULL
+    AND v.media_component_id != '-'
     AND v.media_component_id NOT IN (
-      SELECT media_component_id FROM bi_view_media_component
+      SELECT media_component_id FROM ${coreTableRef('bi_view_media_component')}
     )
     ${process.env.IGNORED_MCID_PATTERNS ?
-      `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',')
-        .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')}'`
+      `AND NOT REGEXP_CONTAINS(v.media_component_id, r'${process.env.IGNORED_MCID_PATTERNS.split(',')
+        .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')}')`
       : ''}
-  `);
+  `;
+  const [invalidMCIDs] = await bq.query({ query: invalidMCIDQuery });
 
-  // Get invalid language IDs
-  const [invalidLanguageIDs] = await mysql.query(`
-    SELECT * FROM ${tableName} v
-    WHERE v.language_id != '-'
-    AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-      SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
+  // Validate invalid language IDs
+  const invalidLangQuery = `
+    SELECT * FROM ${tableRef(tableName)} v
+    WHERE v.language_id IS NOT NULL
+    AND v.language_id != '-'
+    AND v.language_id NOT IN (
+      SELECT wess_language_id FROM ${coreTableRef('bi_view_media_language')}
     )
-  `);
+  `;
+  const [invalidLanguageIDs] = await bq.query({ query: invalidLangQuery });
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,

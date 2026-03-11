@@ -12,7 +12,7 @@ write_files:
     # Install packages
     echo "Installing packages..."
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y nginx certbot python3-certbot-nginx wget curl git openvpn p7zip-full
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nginx certbot python3-certbot-nginx wget curl git p7zip-full
     
     # Install Node.js v20
     echo "Installing Node.js v20..."
@@ -104,14 +104,10 @@ write_files:
     MONGODB_URI=__MONGODB_URI__
     JWT_SECRET=__JWT_SECRET__
     PIPELINE_TIMEOUT_MINUTES=__PIPELINE_TIMEOUT_MINUTES__
-    SKIP_VPN=__SKIP_VPN__
+    BQ_PROJECT_ID=__BQ_PROJECT_ID__
+    BQ_DATASET=__BQ_DATASET__
+    BQ_KEY_FILE=__BQ_KEY_FILE__
     FRONTEND_URL=__FRONTEND_URL__
-    MYSQL_HOST=__MYSQL_HOST__
-    MYSQL_USER=__MYSQL_USER__
-    MYSQL_PASSWORD=__MYSQL_PASSWORD__
-    MYSQL_DATABASE=__MYSQL_DATABASE__
-    VPN_CONFIG_FILE=__VPN_CONFIG_FILE__
-    VPN_AUTH_FILE=__VPN_AUTH_FILE__
     EXPORT_FOLDER_NAME_FORMAT="__EXPORT_FOLDER_NAME_FORMAT__"
     GOOGLE_DRIVE_NAME=__GOOGLE_DRIVE_NAME__
     SLACK_CHANNEL=__SLACK_CHANNEL__
@@ -179,13 +175,6 @@ write_files:
     echo "BASE_URL=${PROTOCOL}://${EXTERNAL_IP}.nip.io" >> /etc/ytdt-claims-pipeline/.env
     echo "ML_API_ENDPOINT=http://localhost:3001" >> /etc/ytdt-claims-pipeline/.env
     echo "GOOGLE_REDIRECT_URI=${PROTOCOL}://${EXTERNAL_IP}.nip.io/api/auth/google/callback" >> /etc/ytdt-claims-pipeline/.env
-
-    echo "Configuring VPN to only route MySQL traffic..."
-    MYSQL_IP=$(getent hosts "__MYSQL_HOST__" | awk '{ print $1 }')
-    cat >> /opt/ytdt-claims-pipeline/config/vpn/client.ovpn << VPNEOF
-    pull-filter ignore redirect-gateway
-    route $MYSQL_IP 255.255.255.255 vpn_gateway
-    VPNEOF
 
     # Create YT-Validator systemd service
     echo "Creating YT-Validator service..."
