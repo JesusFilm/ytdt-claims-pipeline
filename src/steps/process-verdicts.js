@@ -136,7 +136,7 @@ async function processVerdictFile(filePath, type, context) {
     WHERE v.language_id IS NOT NULL
     AND v.language_id != '-'
     AND v.language_id NOT IN (
-      SELECT wess_language_id FROM ${coreTableRef('bi_view_media_language')}
+      SELECT wess_lang_id FROM ${coreTableRef('bi_view_media_language')}
     )
   `;
   const [invalidLanguageIDs] = await bq.query({ query: invalidLangQuery });

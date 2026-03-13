@@ -113,7 +113,7 @@ async function processClaims(context, claimsSource) {
     INNER JOIN ${tableRef(tableName)} t ON v.video_id = t.video_id
     WHERE v.language_id != '-'
     AND v.language_id NOT IN (
-      SELECT wess_language_id FROM ${coreTableRef('bi_view_media_language')}
+      SELECT wess_lang_id FROM ${coreTableRef('bi_view_media_language')}
     )
   `;
   const [invalidLanguageIDs] = await bq.query({ query: invalidLangQuery });

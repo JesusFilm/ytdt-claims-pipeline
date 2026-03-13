@@ -1,6 +1,5 @@
 const fs = require('fs').promises;
 const path = require('path');
-const { stringify } = require('csv-stringify/sync');
 const { generateRunFolderName } = require('../lib/utils');
 const { getBigQueryClient, tableRef } = require('../lib/bigquery');
 
@@ -22,33 +21,43 @@ async function exportViews(context) {
   for (const view of views) {
     console.log(`Exporting ${view.name}...`);
 
-    // Query view
-    const [rows] = await bq.query({ query: `SELECT * FROM ${tableRef(view.name)}` });
+    const filePath = path.join(exportDir, view.file);
+    const [job] = await bq.createQueryJob({ query: `SELECT * FROM ${tableRef(view.name)}` });
+    const [metadata] = await job.getMetadata();
 
-    if (rows.length === 0) {
+    // Stream rows directly to CSV file
+    let rowCount = 0;
+    let headerWritten = false;
+
+    await new Promise((resolve, reject) => {
+      const writeStream = require('fs').createWriteStream(filePath);
+      const queryStream = job.getQueryResultsStream();
+
+      queryStream.on('data', (row) => {
+        if (!headerWritten) {
+          writeStream.write(Object.keys(row).join(',') + '\n');
+          headerWritten = true;
+        }
+        const values = Object.values(row).map(v =>
+          v === null || v === undefined ? '' : `"${String(v).replace(/"/g, '""')}"`
+        );
+        writeStream.write(values.join(',') + '\n');
+        rowCount++;
+      });
+
+      queryStream.on('end', () => { writeStream.end(); resolve(); });
+      queryStream.on('error', reject);
+      writeStream.on('error', reject);
+    });
+
+    if (rowCount === 0) {
       console.log(`No data in ${view.name}`);
       continue;
     }
 
-    // Convert row objects to plain objects with string values for CSV export
-    const plainRows = rows.map(row => {
-      const plain = {};
-      for (const [key, value] of Object.entries(row)) {
-        plain[key] = value === null || value === undefined ? '' : String(value);
-      }
-      return plain;
-    });
-
-    // Convert to CSV
-    const csv = stringify(plainRows, { header: true });
-
-    // Save file
-    const filePath = path.join(exportDir, view.file);
-    await fs.writeFile(filePath, csv);
-
     context.outputs.exports[view.name] = {
       path: filePath,
-      rows: rows.length
+      rows: rowCount
     };
   }
 
