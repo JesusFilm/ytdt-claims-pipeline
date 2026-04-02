@@ -104,11 +104,14 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   // Get invalid MCIDs
   const [invalidMCIDs] = await mysql.query(`
-    SELECT * FROM ${tableName} v
-    WHERE v.media_component_id != '-'
-    AND v.media_component_id NOT IN (
-      SELECT media_component_id FROM bi_view_media_component
+    SELECT v.video_id, v.media_component_id, v.channel_id, v.wave,
+      v.${type === 'mcn' ? 'views' : 'lifetime_view_count'} AS views
+    FROM ${targetTable} v
+    WHERE CONVERT(v.media_component_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
+      SELECT CONVERT(media_component_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_component
     )
+    AND v.media_component_id != '-'
+    AND v.media_component_id != ''
     ${process.env.IGNORED_MCID_PATTERNS ?
       `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',')
         .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')}'`
@@ -117,11 +120,13 @@ async function processVerdictFile(mysql, filePath, type, context) {
 
   // Get invalid language IDs
   const [invalidLanguageIDs] = await mysql.query(`
-    SELECT * FROM ${tableName} v
-    WHERE v.language_id != '-'
-    AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-      SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
+    SELECT v.video_id, v.language_id, v.channel_id
+    FROM ${targetTable} v
+    WHERE CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
+      SELECT CONVERT(language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
+    AND v.language_id != '-'
+    AND v.language_id != ''
   `);
 
   context.outputs[`${type}Verdicts`] = {

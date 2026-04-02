@@ -65,7 +65,7 @@ async function processClaims(context, claimsSource) {
     INNER JOIN ${tableName} t ON v.video_id = t.video_id
     WHERE v.language_id != '-'
     AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-      SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
+      SELECT CONVERT(language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
   `);
 
