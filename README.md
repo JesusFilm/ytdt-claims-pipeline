@@ -20,8 +20,9 @@ docker run -d \
 
 2. **OpenVPN** – Setup, start, and test  
 
-Drop `ca.crt`, `client.crt`, `client.key`, `client.ovpn` into `./config/vpn`,  
-then install OpenVPN binary and dry-test (one-time):
++Drop `ca.crt`, `client.crt`, `client.key`, `client.ovpn` into `./config/vpn`.  
++See [VPN troubleshooting](./docs/vpn-troubleshooting.md) for required directives and credential rotation.  
+ then install OpenVPN binary and dry-test (one-time):
 
 ```shell
 brew install openvpn
