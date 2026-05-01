@@ -123,7 +123,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
     SELECT v.video_id, v.language_id, v.channel_id
     FROM ${targetTable} v
     WHERE CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-      SELECT CONVERT(language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
+      SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
     AND v.language_id != '-'
     AND v.language_id != ''
