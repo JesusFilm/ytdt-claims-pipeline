@@ -14,12 +14,14 @@ module.exports.cleanRow = function (row) {
   return cleaned;
 }
 
+
 module.exports.formatDuration = (ms) => {
   if (!ms) return `♾️`;
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 };
+
 
 module.exports.generateRunFolderName = (startTime) => 
   format(startTime, process.env.EXPORT_FOLDER_NAME_FORMAT || 'yyyyMMddHHmmss');
@@ -39,4 +41,19 @@ module.exports.readFile = async function (filePath, n = 2) {
   }
   rl.close();
   return lines.join('\n');
+}
+
+
+module.exports.sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+
+module.exports.mapWithConcurrency = async (items, concurrency, fn, delayMs = 500) => {
+  const results = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    results.push(...await Promise.all(batch.map(fn)));
+    if (i + concurrency < items.length) await module.exports.sleep(delayMs);
+
+  }
+  return results;
 }

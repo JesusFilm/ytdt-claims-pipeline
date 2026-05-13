@@ -3,6 +3,7 @@ const disconnectVPN = require('./steps/disconnect-vpn');
 const validateInputCSVs = require('./steps/validate-input-csvs');
 const backupTables = require('./steps/backup-tables');
 const processClaims = require('./steps/process-claims');
+const enrichShorts = require('./steps/enrich-shorts');
 const processVerdicts = require('./steps/process-verdicts');
 const exportViews = require('./steps/export-views');
 const enrichML = require('./steps/enrich-ml');
@@ -44,6 +45,12 @@ function getPipelineSteps(files) {
       condition: () => !!files.claims?.matter_2,
       title: 'Process Claims (Matter 2)',
       description: 'Imports and processes Matter 2 MCN claims'
+    },
+    {
+      name: 'enrich_shorts', 
+      fn: enrichShorts,
+      title: 'Enrich Shorts',
+      description: 'Detects YouTube Shorts via HEAD request and updates short flag on new claims'
     },
     {
       name: 'process_mcn_verdicts', fn: processVerdicts, condition: () => !!files.mcnVerdicts,
