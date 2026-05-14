@@ -1,14 +1,20 @@
 
 const { ObjectId } = require('mongodb');
 const axios = require('axios');
+const { execSync } = require('child_process')
 const path = require('path');
 const fs = require('fs');
+
 
 const { createAuthedClient } = require('../lib/authtedClient.js');
 const { generateRunFolderName } = require('../lib/utils');
 const { getOrCreateFolder, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
+
+
+const GIT_BRANCH = (() => { try { return execSync('git rev-parse --abbrev-ref HEAD').toString().trim() } catch { return 'unknown' } })()
+const GIT_COMMIT = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'unknown' } })()
 
 
 // Enhanced status with pipeline step details from MongoDB
@@ -43,15 +49,20 @@ function getHealth(req, res) {
         used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
         total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
       },
-      version: process.env.npm_package_version || '1.0.0'
+      version: process.env.npm_package_version || '1.0.0',
+      branch: GIT_BRANCH,
+      commit: GIT_COMMIT,
     };
 
     // Check ML service
     try {
       const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT, { timeout: 5000 });
-      await mlClient.get('/health');
+      const mlResponse = await mlClient.get('/health');
       health.enrich_ml_status = 'healthy';
-
+      health.enrich_ml_version = mlResponse.data.version;
+      health.enrich_ml_branch = mlResponse.data.branch;
+      health.enrich_ml_commit = mlResponse.data.commit; 
+      
     } catch (error) {
       health.enrich_ml_status = 'unhealthy';
       health.status = 'degraded';
