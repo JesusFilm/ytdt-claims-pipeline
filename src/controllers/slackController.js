@@ -129,7 +129,8 @@ async function handleSlashCommand(req, res) {
   const session = await createSession(userId);
   await updateSession(userId, { channel });
 
-  await slackPost(channel, promptBlock(session), `Step 1 of ${stepCount()}`);
+  const resp = await slackPost(channel, promptBlock(session), `Step 1 of ${stepCount()}`);
+  await updateSession(userId, { channel, promptTs: resp.data.ts });
 }
 
 // ─── Events API: file_shared ─────────────────────────────────────────────────
@@ -181,15 +182,22 @@ async function handleFileMessage(event) {
     return;
   }
 
-  // Advance session
+// Advance session
   const newFiles = { ...session.files, [step.key]: destPath };
   const newStepIndex = session.stepIndex + 1;
   const updatedSession = await updateSession(userId, { files: newFiles, stepIndex: newStepIndex });
 
+  // Clear buttons on previous prompt
+  if (session.promptTs) {
+    await slackUpdate(session.channel, session.promptTs, [], `✅ _${step.label} uploaded_`);
+  }
+
   if (newStepIndex >= stepCount()) {
-    await slackPost(session.channel, confirmBlock(updatedSession), 'Ready to run pipeline');
+    const resp = await slackPost(session.channel, confirmBlock(updatedSession), 'Ready to run pipeline');
+    await updateSession(userId, { promptTs: resp.data.ts });
   } else {
-    await slackPost(session.channel, promptBlock(updatedSession), `Step ${newStepIndex + 1} of ${stepCount()}`);
+    const resp = await slackPost(session.channel, promptBlock(updatedSession), `Step ${newStepIndex + 1} of ${stepCount()}`);
+    await updateSession(userId, { promptTs: resp.data.ts });
   }
 }
 
@@ -227,9 +235,13 @@ async function handleInteraction(req, res) {
   if (!session) return;
 
   if (action.action_id === 'session_skip') {
+
+    if (session.promptTs) {
+      await slackUpdate(session.channel, session.promptTs, [], '⏭ _Skipped_');
+    }
+
     const newStepIndex = session.stepIndex + 1;
     const updatedSession = await updateSession(userId, { stepIndex: newStepIndex });
-
     if (newStepIndex >= stepCount()) {
       if (Object.keys(updatedSession.files).length === 0) {
         await slackPost(channel, [], '⚠️ No files were provided. Please start again with `/run-pipeline`.');
@@ -238,7 +250,8 @@ async function handleInteraction(req, res) {
         await slackPost(channel, confirmBlock(updatedSession), 'Ready to run pipeline');
       }
     } else {
-      await slackPost(channel, promptBlock(updatedSession), `Step ${newStepIndex + 1} of ${stepCount()}`);
+      const resp = await slackPost(channel, promptBlock(updatedSession), `Step ${newStepIndex + 1} of ${stepCount()}`);
+      await updateSession(userId, { promptTs: resp.data.ts });
     }
     return;
   }
