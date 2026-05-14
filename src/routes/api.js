@@ -24,6 +24,8 @@ function createApiRoutes(pipelineStatus) {
 
   // Slack interaction route
   router.post('/slack/interactions', slackController.handleInteraction);
+  router.post('/slack/events', slackController.handleEvent);
+  router.post('/slack/commands', slackController.handleSlashCommand);
 
   return router;
 }

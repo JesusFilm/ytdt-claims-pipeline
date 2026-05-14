@@ -143,7 +143,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     );
     console.log(`Slack notification sent for run ${runId}`);
   } catch (err) {
-    console.error('Failed to send Slack notification:', err.message);
+    console.error('Failed to send Slack notification:', err.message, err.code, err.response?.data);
   }
 }
 

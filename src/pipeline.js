@@ -457,7 +457,7 @@ async function syncRunState(runId, completionData = {}) {
   // Send Slack notification if run reached terminal state and not already notified
   if (process.env.SLACK_BOT_TOKEN && !run.slackNotified) {
     const finalStatus = updateFields.status || run.status;
-    if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'timeout') {
+    if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'timeout' || finalStatus === 'stopped') {
       try {
         const { sendPipelineNotification } = require('./lib/slackNotifier');
         await sendPipelineNotification(
