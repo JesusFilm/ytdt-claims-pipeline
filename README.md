@@ -184,7 +184,9 @@ gcloud compute instances describe ytdt-mongodb
 
 ## Integrations
 
-### [Slack Notification Bot](./docs/slack-integration.md)
+### [Slack Bot](./docs/slack-integration.md)
+
+Notifications:
 
 ```
 Pipeline Complete → Check Status → Post to #youtube-data-chat
@@ -192,4 +194,14 @@ Pipeline Complete → Check Status → Post to #youtube-data-chat
                               [Failed? Add "Rerun" button]
                                          ↓
 User Clicks "Rerun" → Slack Interaction → Backend Webhook → Trigger New Pipeline Run
+```
+
+Guided upload:
+
+```
+/run-pipeline → Guided CSV Upload (4 steps) → ▶ Run Pipeline → Pipeline Runs
+                                                                      ↓
+                                             Notification posted to #youtube-data-chat
+                                                                      ↓
+                                                   [📁 View in Drive] / [Rerun Pipeline]
 ```
