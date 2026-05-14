@@ -9,6 +9,7 @@ const { createAuthRoutes } = require('./routes/auth');
 const { authenticateRequest } = require('./middleware/auth');
 const { handleMLWebhook } = require('./controllers/statusController')
 const { getHealth } = require('./controllers/statusController');
+const slackController = require('./controllers/slackController');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -111,6 +112,11 @@ app.post('/api/run',
 // Mount public routes (server-to-server callback, health check)   
 app.post('/api/ml-webhook', handleMLWebhook);
 app.get('/api/health', getHealth);
+
+// Slack routes (no auth — verified by signing secret instead)
+app.post('/api/slack/interactions', slackController.handleInteraction);
+app.post('/api/slack/events',       slackController.handleEvent);
+app.post('/api/slack/commands',     slackController.handleSlashCommand);
 
 // Mount & Protect API routes
 app.use('/api/auth', createAuthRoutes());
