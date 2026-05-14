@@ -42,7 +42,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     }
     
     if (sources.length > 0) {
-      claimsText = `\n\n📊 *Claims Processed (${totalNew.toLocaleString()} new)*\n${sources.join('\n')}`;
+      claimsText = `\n\n*Claims Processed (${totalNew.toLocaleString()} new)*\n${sources.join('\n')}`;
     }
   }
   
@@ -52,9 +52,16 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   const jfmProcessed = results?.jfmVerdicts?.processed || 0;
   if (mcnProcessed || jfmProcessed) {
     const totalProcessed = mcnProcessed + jfmProcessed;
-    verdictsText = `\n\n📋 *Verdicts Applied (${totalProcessed.toLocaleString()} total)*`;
+    verdictsText = `\n\n*Verdicts Applied (${totalProcessed.toLocaleString()} total)*`;
     if (mcnProcessed) verdictsText += `\n  • MCN: ${mcnProcessed.toLocaleString()} processed`;
     if (jfmProcessed) verdictsText += `\n  • JFM: ${jfmProcessed.toLocaleString()} processed`;
+  }
+
+  // Build shorts section
+  let shortsText = '';
+  if (results?.enrichShorts) {
+    const { checked, marked } = results.enrichShorts;
+    shortsText = `\n\n*Shorts Detected (${marked.toLocaleString()} / ${checked.toLocaleString()} checked)*`;
   }
   
   // Build issues section
@@ -65,12 +72,12 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     const issues = [];
     if (invalidMCIDs) issues.push(`  • Invalid MCIDs: ${invalidMCIDs}`);
     if (invalidLanguageIDs) issues.push(`  • Invalid Language IDs: ${invalidLanguageIDs}`);
-    issuesText = `\n\n⚠️ *Data Quality Issues*\n${issues.join('\n')}`;
+    issuesText = `\n\n*Data Quality Issues*\n${issues.join('\n')}`;
   }
   
-  let text = `${emoji} *Pipeline Run ${statusText}*\n━━━━━━━━━━━━━━━━━━━━━━\n⏱ Duration: ${durationText}\n📅 Started: ${startTimeText}\n📁 Files: ${filesText}\n🆔 Run: \`${runId}\`${claimsText}${verdictsText}${issuesText}`;
+  let text = `${emoji} *Pipeline Run ${statusText}*\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}\nFiles: ${filesText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
   if (error) {
-    text += `\n\n❌ *Error*\n${error}`;
+    text += `\n\n*Error*\n${error}`;
   }
 
   const blocks = [
