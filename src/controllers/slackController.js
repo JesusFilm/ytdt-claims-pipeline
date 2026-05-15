@@ -312,7 +312,7 @@ async function handleInteraction(req, res) {
     await deleteSession(userId);
     await slackPost(channel, [], '⏳ Pipeline started! You\'ll get a notification here when it\'s done.');
 
-    runPipeline(files)
+    runPipeline(files, {}, null, { source: 'slack', user: payload.user.username || payload.user.id })
       .then(() => clearPendingRun())
       .catch(err => console.error('Slack-triggered pipeline failed:', err));
     return;

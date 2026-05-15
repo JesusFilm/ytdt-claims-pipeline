@@ -47,7 +47,7 @@ function getPipelineSteps(files) {
       description: 'Imports and processes Matter 2 MCN claims'
     },
     {
-      name: 'enrich_shorts', 
+      name: 'enrich_shorts',
       fn: enrichShorts,
       title: 'Enrich Shorts',
       description: 'Detects YouTube Shorts via HEAD request and updates short flag on new claims'
@@ -81,7 +81,7 @@ function getPipelineSteps(files) {
 }
 
 // Main pipeline runner
-async function runPipeline(files, options = {}, existingRunId = null) {
+async function runPipeline(files, options = {}, existingRunId = null, triggeredBy = {}) {
   const context = {
     files,
     options,
@@ -104,6 +104,7 @@ async function runPipeline(files, options = {}, existingRunId = null) {
       currentStep: 'starting',
       startedSteps: [],
       files: files,
+      triggeredBy, // { source: 'ui' | 'slack', user: 'email or slack name' }
       startTime: new Date(),
       error: null,
       endTime: null
@@ -467,7 +468,8 @@ async function syncRunState(runId, completionData = {}) {
           updateFields.duration || run.duration,
           run.files,
           run.startTime,
-          updateFields.results || run.results
+          updateFields.results || run.results,
+          run.triggeredBy
         );
 
         // Mark as notified to prevent duplicates
@@ -534,7 +536,7 @@ async function runSingleStep(runId, stepName, run) {
     // Ensure VPN is connected first
     const connectVPN = require('./steps/connect-vpn');
     await connectVPN(context);
-    
+
     context.connections.mysql = await mysql.createPool({
       host: process.env.MYSQL_HOST,
       user: process.env.MYSQL_USER,
