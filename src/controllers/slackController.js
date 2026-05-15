@@ -109,12 +109,12 @@ async function downloadSlackFile(url, destPath) {
     responseType: 'stream',
     maxRedirects: 5,
   });
-  
+
   const contentType = response.headers['content-type'] || '';
   if (contentType.includes('text/html')) {
     throw new Error('Slack returned HTML instead of file content — check bot permissions');
   }
-  
+
   await new Promise((resolve, reject) => {
     const writer = fs.createWriteStream(destPath);
     response.data.pipe(writer);
@@ -309,11 +309,12 @@ async function handleInteraction(req, res) {
       jfmVerdicts: session.files.jfm_verdicts || null,
     };
 
-    await clearPendingRun();
     await deleteSession(userId);
     await slackPost(channel, [], '⏳ Pipeline started! You\'ll get a notification here when it\'s done.');
 
-    runPipeline(files).catch(err => console.error('Slack-triggered pipeline failed:', err));
+    runPipeline(files)
+      .then(() => clearPendingRun())
+      .catch(err => console.error('Slack-triggered pipeline failed:', err));
     return;
   }
 }
