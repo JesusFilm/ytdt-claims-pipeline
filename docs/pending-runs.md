@@ -13,7 +13,7 @@ Data Engineering uploads claims via UI
           ↓
    Stored as pending_run in MongoDB (status: awaiting_verdicts)
           ↓
-Ben runs /run-claims in Slack → prompted for verdicts only
+Ben runs /run-verdicts in Slack → prompted for verdicts only
           ↓
 Bot detects pending claims → merges with verdicts → fires pipeline
           ↓
@@ -39,7 +39,7 @@ A banner appears when pending claims exist:
 
 ## Slack — Verdicts Only
 
-When Ben runs `/run-claims`, the bot skips claims steps and only prompts for:
+When Ben runs `/run-verdicts`, the bot skips claims steps and only prompts for:
 - Step 1 of 2: MCN Verdicts
 - Step 2 of 2: JFM Verdicts
 

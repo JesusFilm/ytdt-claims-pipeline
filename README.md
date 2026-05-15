@@ -182,6 +182,11 @@ gcloud compute instances describe ytdt-mongodb
 ### 2. [Deploy ytdt-claims-pipeline](./docs/deploy.md) to GCE.
 
 
+## Frontend
+
+The web UI is in [JesusFilm/ytdt-claims-console](https://github.com/JesusFilm/ytdt-claims-console).
+
+
 ## Integrations
 
 ### [Slack Bot](./docs/slack-integration.md)
@@ -199,7 +204,7 @@ User Clicks "Rerun" → Slack Interaction → Backend Webhook → Trigger New Pi
 Guided upload:
 
 ```
-/run-claims → Guided CSV Upload (4 steps) → ▶ Run Pipeline → Pipeline Runs
+/run-verdicts → Guided CSV Upload (4 steps) → ▶ Run Pipeline → Pipeline Runs
                                                                       ↓
                                              Notification posted to #youtube-data-chat
                                                                       ↓
