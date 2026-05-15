@@ -199,9 +199,13 @@ User Clicks "Rerun" → Slack Interaction → Backend Webhook → Trigger New Pi
 Guided upload:
 
 ```
-/run-pipeline → Guided CSV Upload (4 steps) → ▶ Run Pipeline → Pipeline Runs
+/run-claims → Guided CSV Upload (4 steps) → ▶ Run Pipeline → Pipeline Runs
                                                                       ↓
                                              Notification posted to #youtube-data-chat
                                                                       ↓
                                                    [📁 View in Drive] / [Rerun Pipeline]
 ```
+
+### [Pending Runs — Claims & Verdicts Split](./docs/pending-runs.md)
+
+Claims (~1GB) are staged via the UI by Data Engineering. Ben uploads verdicts via Slack. The pipeline fires once both are present.

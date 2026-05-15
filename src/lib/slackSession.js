@@ -2,16 +2,6 @@ const { getDatabase } = require('../database');
 
 const STEPS = [
   {
-    key: 'claims_matter_entertainment',
-    label: 'Claims — Matter Entertainment',
-    description: 'Download from YouTube Studio → Matter Entertainment account → Reports → Claims → Export CSV (1.0 format)',
-  },
-  {
-    key: 'claims_matter_2',
-    label: 'Claims — Matter 2',
-    description: 'Download from YouTube Studio → Matter 2 account → Reports → Claims → Export CSV (1.0 format)',
-  },
-  {
     key: 'mcn_verdicts',
     label: 'MCN Verdicts',
     description: 'Your MCN verdicts CSV (columns: video_id, verdict, media_component_id, language_id, wave, no_code)',

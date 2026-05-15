@@ -5,12 +5,14 @@
 Two capabilities:
 
 1. **Pipeline notifications** — bot posts to channel on completion/failure, with a "Rerun" button on failure
-2. **Guided file upload** — Ben runs `/run-pipeline` in Slack and is walked through uploading each CSV file step by step, then triggers the pipeline without touching the UI
+2. **Guided verdicts upload** — Ben runs `/run-claims` in Slack and is walked through uploading each verdicts CSV, which then merges with pre-staged claims and fires the pipeline
+
+See [docs/pending-runs.md](./pending-runs.md) for the full claims/verdicts split flow.
 
 ```
-/run-pipeline
+/run-claims
       ↓
-Bot prompts for each file (Claims ME → Claims M2 → MCN Verdicts → JFM Verdicts)
+Bot prompts for verdicts (MCN Verdicts → JFM Verdicts)
       ↓
 User uploads CSV (or skips)
       ↓
@@ -25,9 +27,11 @@ Pipeline Complete → Notification with 📁 View in Drive link
 - `chat:write` - Post messages to channels
 - `chat:write.public` - Post to channels without joining
 - `files:read` - Download uploaded CSV files
+- `channels:history` - Read messages in public channels
+- `groups:history` - Read messages in private channels
 
 ### Slash Commands
-- `/run-pipeline` - Starts the guided upload session
+- `/run-claims` - Starts the guided verdicts upload session
 
 ## Setup Steps
 
@@ -45,6 +49,8 @@ Pipeline Complete → Notification with 📁 View in Drive link
    - `chat:write`
    - `chat:write.public`
    - `files:read`
+   - `channels:history`
+   - `groups:history`
 
 ### 3. Enable Interactivity
 
@@ -59,7 +65,8 @@ Pipeline Complete → Notification with 📁 View in Drive link
 2. Turn on **Enable Events**
 3. Set **Request URL**: `https://<backend-url>/api/slack/events`
 4. Under **Subscribe to bot events**, add:
-   - `message.channels` (to receive file uploads in channels)
+   - `message.channels` (public channels)
+   - `message.groups` (private channels)
 5. Click **Save Changes**
 
 ### 5. Create Slash Command
@@ -67,9 +74,9 @@ Pipeline Complete → Notification with 📁 View in Drive link
 1. Navigate to **Slash Commands**
 2. Click **Create New Command**
 3. Set:
-   - Command: `/run-pipeline`
+   - Command: `/run-claims`
    - Request URL: `https://<backend-url>/api/slack/commands`
-   - Short Description: `Upload claims & verdicts and run the pipeline`
+   - Short Description: `Upload verdicts and run the pipeline`
 4. Click **Save**
 
 ### 6. Install App to Workspace
@@ -90,15 +97,16 @@ Add to your `.env` file:
 
 ```bash
 SLACK_BOT_TOKEN=xoxb-bot-token-here
-SLACK_SIGNING_SECRET=bot-signing-secret-here
-SLACK_CHANNEL=#youtube-data-chat
+SLACK_SIGNING_SECRET=your-signing-secret-here
+SLACK_CHANNEL=#ytdt-pipeline
 ```
 
 ### 9. Invite Bot to Channel
 
-In Slack:
-1. Go to your target channel (`#youtube-data-chat`)
-2. Type `/invite @Pipeline Notifier`
+In Slack, go to your target channel and type:
+```
+/invite @Pipeline Notifier
+```
 
 ## Testing
 
@@ -110,11 +118,12 @@ curl -X POST https://slack.com/api/chat.postMessage \
   -d '{"channel":"#ytdt-pipeline","text":"test"}'
 ```
 
-**Test guided upload flow:**
-1. Type `/run-pipeline` in the channel
-2. Follow the prompts — upload a CSV or click "Skip" for each step
-3. Click "▶ Run Pipeline" on the confirmation screen
-4. Verify pipeline starts and completion notification arrives with Drive link
+**Test guided verdicts upload:**
+1. Have Data Engineering stage claims via the UI first (see [pending-runs.md](./pending-runs.md))
+2. Type `/run-claims` in the channel
+3. Upload MCN and JFM verdicts CSVs when prompted (or skip)
+4. Click "▶ Run Pipeline" on the confirmation screen
+5. Verify pipeline starts and completion notification arrives with Drive link
 
 **Test pipeline notifications:**
 
@@ -135,19 +144,35 @@ Trigger a failed pipeline run and verify:
 - Ensure channel name includes `#` prefix
 
 **File uploads not detected:**
-- Verify `message.channels` event is subscribed under Event Subscriptions
+- Verify `message.channels` and `message.groups` events are subscribed under Event Subscriptions
 - Verify `files:read` scope is granted
 - Check bot is invited to the channel
+- Reinstall the app after any scope changes
 
 **Button clicks not working:**
-- Verify Request URL is publicly accessible
+- Verify Interactivity Request URL is set to `/api/slack/interactions` (not `/api/slack/commands`)
 - Check backend logs for errors
 - Ensure HTTPS is used (Slack requires HTTPS)
 
-**Delete bot's own messages:**
+**No claims staged error:**
+- Data Engineering must upload claims via the UI and click "Save & Wait for Verdicts" before Ben runs `/run-claims`
+- See [pending-runs.md](./pending-runs.md)
 
-Extract from bot message url e.g. `https://jfp-digital.slack.com/archives/C09KPF83TBJ/p1759959559103239`,
-the message timestamp and channel ID as `1759959559.103239` and `C09KPF83TBJ` resp.
+## Deleting Bot Messages
+
+**Option 1 — script:**
+
+```shell
+node scripts/slack-delete.js "https://jfp-digital.slack.com/archives/C09KPF83TBJ/p1759959559103239"
+```
+
+Requires `SLACK_BOT_TOKEN` env var set.
+
+**Option 2 — curl:**
+
+Extract the message timestamp and channel ID from the message URL:
+e.g. `https://jfp-digital.slack.com/archives/C09KPF83TBJ/p1759959559103239`
+→ channel: `C09KPF83TBJ`, ts: `1759959559.103239`
 
 ```shell
 curl -X POST https://slack.com/api/chat.delete \
