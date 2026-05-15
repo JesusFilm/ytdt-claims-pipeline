@@ -4,10 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const { getDatabase } = require('../database');
 const { runPipeline, getCurrentPipelineStatus } = require('../pipeline');
-const {
-  STEPS, getSession, createSession, updateSession, deleteSession,
-  currentStep, stepCount,
-} = require('../lib/slackSession');
+const { STEPS, getSession, createSession, updateSession, deleteSession, currentStep, stepCount } = require('../lib/slackSession');
+const { getPendingRun, clearPendingRun } = require('../lib/pendingRun');
+
 
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -37,7 +36,7 @@ function promptBlock(session) {
   const collected = Object.keys(session.files).length;
   const collectedLabels = STEPS
     .filter(s => session.files[s.key])
-    .map(s => `  ✅ ${s.label}`)
+    .map(s => `  • ${s.label}`)
     .join('\n');
 
   return [
@@ -45,7 +44,7 @@ function promptBlock(session) {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Step ${stepNum} of ${total}: ${step.label}*\n${step.description}\n\n👆 *Upload the CSV file now*, or choose an option below.${collectedLabels ? `\n\n*Collected so far:*\n${collectedLabels}` : ''}`,
+        text: `*Step ${stepNum} of ${total}: ${step.label}*\n${step.description}\n\n*Upload the CSV file now*, or choose an option below.${collectedLabels ? `\n\n*Collected so far:*\n${collectedLabels}` : ''}`,
       },
     },
     {
@@ -117,7 +116,7 @@ async function downloadSlackFile(url, destPath) {
   });
 }
 
-// ─── Slash command: /run-pipeline ───────────────────────────────────────────
+// ─── Slash command: /run-claims ───────────────────────────────────────────
 
 async function handleSlashCommand(req, res) {
   // Acknowledge immediately (Slack requires <3s response)
@@ -182,14 +181,14 @@ async function handleFileMessage(event) {
     return;
   }
 
-// Advance session
+  // Advance session
   const newFiles = { ...session.files, [step.key]: destPath };
   const newStepIndex = session.stepIndex + 1;
   const updatedSession = await updateSession(userId, { files: newFiles, stepIndex: newStepIndex });
 
   // Clear buttons on previous prompt
   if (session.promptTs) {
-    await slackUpdate(session.channel, session.promptTs, [], `✅ _${step.label} uploaded_`);
+    await slackUpdate(session.channel, session.promptTs, [], `_${step.label} — uploaded_`);
   }
 
   if (newStepIndex >= stepCount()) {
@@ -237,14 +236,14 @@ async function handleInteraction(req, res) {
   if (action.action_id === 'session_skip') {
 
     if (session.promptTs) {
-      await slackUpdate(session.channel, session.promptTs, [], '⏭ _Skipped_');
+      await slackUpdate(session.channel, session.promptTs, [], `_${STEPS[session.stepIndex].label} — skipped_`);
     }
 
     const newStepIndex = session.stepIndex + 1;
     const updatedSession = await updateSession(userId, { stepIndex: newStepIndex });
     if (newStepIndex >= stepCount()) {
       if (Object.keys(updatedSession.files).length === 0) {
-        await slackPost(channel, [], '⚠️ No files were provided. Please start again with `/run-pipeline`.');
+        await slackPost(channel, [], '⚠️ No files were provided. Please start again with `/run-claims`.');
         await deleteSession(userId);
       } else {
         await slackPost(channel, confirmBlock(updatedSession), 'Ready to run pipeline');
@@ -258,7 +257,7 @@ async function handleInteraction(req, res) {
 
   if (action.action_id === 'session_cancel') {
     await deleteSession(userId);
-    await slackPost(channel, [], '🚫 Pipeline upload cancelled. Run `/run-pipeline` to start again.');
+    await slackPost(channel, [], '🚫 Pipeline upload cancelled. Run `/run-claims` to start again.');
     return;
   }
 
@@ -266,7 +265,7 @@ async function handleInteraction(req, res) {
 
     // Final check: at least one file provided
     if (Object.keys(session.files).length === 0) {
-      await slackPost(channel, [], '⚠️ No files were collected. Run `/run-pipeline` to start again.');
+      await slackPost(channel, [], '⚠️ No files were collected. Run `/run-claims` to start again.');
       await deleteSession(userId);
       return;
     }
@@ -278,16 +277,21 @@ async function handleInteraction(req, res) {
       return;
     }
 
+    // Check for staged claims
+    const pendingRun = await getPendingRun();
+    if (!pendingRun) {
+      await slackPost(channel, [], '_No claims are currently staged. Please check with the data team._');
+      return;
+    }
+
     // Map session files → pipeline files shape
     const files = {
-      claims: {
-        matter_entertainment: session.files.claims_matter_entertainment || null,
-        matter_2: session.files.claims_matter_2 || null,
-      },
+      claims: pendingRun.claims,
       mcnVerdicts: session.files.mcn_verdicts || null,
       jfmVerdicts: session.files.jfm_verdicts || null,
     };
 
+    await clearPendingRun();
     await deleteSession(userId);
     await slackPost(channel, [], '⏳ Pipeline started! You\'ll get a notification here when it\'s done.');
 

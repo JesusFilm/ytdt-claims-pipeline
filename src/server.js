@@ -1,15 +1,19 @@
 require('dotenv').config();
 const express = require('express');
-const multer = require('multer');
 const cors = require('cors');
+
 const { runPipeline } = require('./pipeline');
-const { createApiRoutes } = require('./routes/api');
 const { connectToDatabase, closeConnection } = require('./database');
-const { createAuthRoutes } = require('./routes/auth');
+
+const upload = require('./middleware/upload');
 const { authenticateRequest } = require('./middleware/auth');
-const { handleMLWebhook } = require('./controllers/statusController')
+
 const { getHealth } = require('./controllers/statusController');
 const slackController = require('./controllers/slackController');
+const { handleMLWebhook } = require('./controllers/statusController')
+
+const { createApiRoutes } = require('./routes/api');
+const { createAuthRoutes } = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,11 +23,6 @@ app.use(cors());
 app.use(express.urlencoded({ extended: true })); 
 app.use(express.json());
 
-// File upload config
-const upload = multer({
-  dest: 'data/uploads/',
-  limits: { fileSize: 1024 * 1024 * 5000 } // 5GB
-});
 
 // Store current pipeline status
 let pipelineStatus = {
