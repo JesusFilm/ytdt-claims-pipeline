@@ -78,7 +78,7 @@ app.post('/api/run',
     };
 
     // Run pipeline in background
-    runPipeline(files)
+    runPipeline(files, {}, null, { source: 'ui', user: req.user?.email || 'unknown' })
       .then(async (result) => {
         pipelineStatus = {
           running: false,
