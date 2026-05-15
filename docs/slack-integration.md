@@ -29,6 +29,8 @@ Pipeline Complete → Notification with 📁 View in Drive link
 - `files:read` - Download uploaded CSV files
 - `channels:history` - Read messages in public channels
 - `groups:history` - Read messages in private channels
+- `remote_files:read` - Read remote file metadata
+- `files:read` - Read remote file metadata
 
 ### Slash Commands
 - `/run-verdicts` - Starts the guided verdicts upload session
@@ -105,7 +107,7 @@ SLACK_CHANNEL=#ytdt-pipeline
 
 In Slack, go to your target channel and type:
 ```
-/invite @Pipeline Notifier
+/invite @ytdt-pipeline
 ```
 
 ## Testing

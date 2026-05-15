@@ -107,7 +107,14 @@ async function downloadSlackFile(url, destPath) {
   const response = await axios.get(url, {
     headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
     responseType: 'stream',
+    maxRedirects: 5,
   });
+  
+  const contentType = response.headers['content-type'] || '';
+  if (contentType.includes('text/html')) {
+    throw new Error('Slack returned HTML instead of file content — check bot permissions');
+  }
+  
   await new Promise((resolve, reject) => {
     const writer = fs.createWriteStream(destPath);
     response.data.pipe(writer);
