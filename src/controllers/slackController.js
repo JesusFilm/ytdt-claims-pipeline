@@ -116,18 +116,29 @@ async function downloadSlackFile(url, destPath) {
   });
 }
 
-// ─── Slash command: /run-claims ───────────────────────────────────────────
+// ─── Slash command: /run-verdicts ───────────────────────────────────────────
 
 async function handleSlashCommand(req, res) {
-  // Acknowledge immediately (Slack requires <3s response)
   res.json({ response_type: 'ephemeral', text: 'Starting guided upload…' });
 
   const userId = req.body.user_id;
   const channel = req.body.channel_id;
 
+  const pendingRun = await getPendingRun();
+  if (!pendingRun) {
+    await slackPost(channel, [], '_No claims are currently staged. Please check with the data team._');
+    return;
+  }
+
+  const sources = [];
+  if (pendingRun.claims.matter_entertainment) sources.push('Matter Entertainment');
+  if (pendingRun.claims.matter_2) sources.push('Matter 2');
+  const stagedText = `📋 *Staged claims:* ${sources.join(', ')}\n_Uploaded ${new Date(pendingRun.uploadedAt).toLocaleString()}_`;
+
   const session = await createSession(userId);
   await updateSession(userId, { channel });
 
+  await slackPost(channel, [], stagedText);
   const resp = await slackPost(channel, promptBlock(session), `Step 1 of ${stepCount()}`);
   await updateSession(userId, { channel, promptTs: resp.data.ts });
 }
@@ -243,7 +254,7 @@ async function handleInteraction(req, res) {
     const updatedSession = await updateSession(userId, { stepIndex: newStepIndex });
     if (newStepIndex >= stepCount()) {
       if (Object.keys(updatedSession.files).length === 0) {
-        await slackPost(channel, [], '⚠️ No files were provided. Please start again with `/run-claims`.');
+        await slackPost(channel, [], '⚠️ No files were provided. Please start again with `/run-verdicts`.');
         await deleteSession(userId);
       } else {
         await slackPost(channel, confirmBlock(updatedSession), 'Ready to run pipeline');
@@ -257,7 +268,7 @@ async function handleInteraction(req, res) {
 
   if (action.action_id === 'session_cancel') {
     await deleteSession(userId);
-    await slackPost(channel, [], '🚫 Pipeline upload cancelled. Run `/run-claims` to start again.');
+    await slackPost(channel, [], '🚫 Pipeline upload cancelled. Run `/run-verdicts` to start again.');
     return;
   }
 
@@ -265,7 +276,7 @@ async function handleInteraction(req, res) {
 
     // Final check: at least one file provided
     if (Object.keys(session.files).length === 0) {
-      await slackPost(channel, [], '⚠️ No files were collected. Run `/run-claims` to start again.');
+      await slackPost(channel, [], '⚠️ No files were collected. Run `/run-verdicts` to start again.');
       await deleteSession(userId);
       return;
     }

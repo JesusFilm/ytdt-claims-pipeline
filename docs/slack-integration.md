@@ -5,12 +5,12 @@
 Two capabilities:
 
 1. **Pipeline notifications** — bot posts to channel on completion/failure, with a "Rerun" button on failure
-2. **Guided verdicts upload** — Ben runs `/run-claims` in Slack and is walked through uploading each verdicts CSV, which then merges with pre-staged claims and fires the pipeline
+2. **Guided verdicts upload** — Ben runs `/run-verdicts` in Slack and is walked through uploading each verdicts CSV, which then merges with pre-staged claims and fires the pipeline
 
 See [docs/pending-runs.md](./pending-runs.md) for the full claims/verdicts split flow.
 
 ```
-/run-claims
+/run-verdicts
       ↓
 Bot prompts for verdicts (MCN Verdicts → JFM Verdicts)
       ↓
@@ -31,7 +31,7 @@ Pipeline Complete → Notification with 📁 View in Drive link
 - `groups:history` - Read messages in private channels
 
 ### Slash Commands
-- `/run-claims` - Starts the guided verdicts upload session
+- `/run-verdicts` - Starts the guided verdicts upload session
 
 ## Setup Steps
 
@@ -74,7 +74,7 @@ Pipeline Complete → Notification with 📁 View in Drive link
 1. Navigate to **Slash Commands**
 2. Click **Create New Command**
 3. Set:
-   - Command: `/run-claims`
+   - Command: `/run-verdicts`
    - Request URL: `https://<backend-url>/api/slack/commands`
    - Short Description: `Upload verdicts and run the pipeline`
 4. Click **Save**
@@ -120,7 +120,7 @@ curl -X POST https://slack.com/api/chat.postMessage \
 
 **Test guided verdicts upload:**
 1. Have Data Engineering stage claims via the UI first (see [pending-runs.md](./pending-runs.md))
-2. Type `/run-claims` in the channel
+2. Type `/run-verdicts` in the channel
 3. Upload MCN and JFM verdicts CSVs when prompted (or skip)
 4. Click "▶ Run Pipeline" on the confirmation screen
 5. Verify pipeline starts and completion notification arrives with Drive link
@@ -155,7 +155,7 @@ Trigger a failed pipeline run and verify:
 - Ensure HTTPS is used (Slack requires HTTPS)
 
 **No claims staged error:**
-- Data Engineering must upload claims via the UI and click "Save & Wait for Verdicts" before Ben runs `/run-claims`
+- Data Engineering must upload claims via the UI and click "Save & Wait for Verdicts" before Ben runs `/run-verdicts`
 - See [pending-runs.md](./pending-runs.md)
 
 ## Deleting Bot Messages
