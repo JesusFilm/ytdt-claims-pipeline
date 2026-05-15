@@ -151,4 +151,26 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   }
 }
 
-module.exports = { sendPipelineNotification };
+
+async function notifyClaimsStaged(claims, stagedBy) {
+  if (!process.env.SLACK_BOT_TOKEN) return;
+  const channel = process.env.SLACK_CHANNEL || '#ytdt-pipeline';
+
+  const sources = [];
+  if (claims.matter_entertainment) sources.push('Matter Entertainment');
+  if (claims.matter_2) sources.push('Matter 2');
+
+  const text = `📋 *Claims staged by ${stagedBy}*\nSources: ${sources.join(', ')}\nReady for \`/run-verdicts\``;
+
+  try {
+    await axios.post(
+      'https://slack.com/api/chat.postMessage',
+      { channel, text },
+      { headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    console.error('Failed to notify claims staged:', err.message);
+  }
+}
+
+module.exports = { sendPipelineNotification, notifyClaimsStaged };

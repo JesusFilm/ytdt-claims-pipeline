@@ -146,3 +146,48 @@ sudo systemctl status yt-validator
 sudo journalctl -u ytdt-claims-pipeline -n 50
 sudo journalctl -u yt-validator -n 50
 ```
+
+### vm-routing service (asymmetric routing during VPN)
+
+The `vm-routing` service is normally already deployed via [cloud-config](infrastructure/gcp/cloud-config.yaml).
+The `vm-routing` service adds a policy route so inbound traffic to the VM's external IP replies via the local gateway, not the VPN tunnel. Without it, the console at https://ytdt-claims-console.jesusfilm.org can't reach the backend while the pipeline VPN is up.
+
+Verify it's installed and active:
+```bash
+sudo systemctl status vm-routing
+ip rule | grep 128
+ip route show table 128
+```
+
+Expected:
+- `from <VM_INTERNAL_IP> lookup 128`
+- `default via <GATEWAY> dev ens4`
+
+If missing, install manually:
+```bash
+sudo tee /etc/systemd/system/vm-routing.service > /dev/null <<'EOF'
+[Unit]
+Description=VM symmetric routing (bypass VPN for inbound traffic)
+After=network-online.target
+Wants=network-online.target
+Before=ytdt-claims-pipeline.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'IFACE=$(ip route show default | awk "{print \$5; exit}"); IP=$(ip -4 -o addr show $IFACE | awk "{print \$4}" | cut -d/ -f1); GW=$(ip route show default dev $IFACE | awk "{print \$3}"); ip rule add from $IP table 128 2>/dev/null || true; ip route add table 128 default via $GW dev $IFACE 2>/dev/null || true'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now vm-routing
+```
+
+Test while pipeline VPN is up:
+```bash
+# from external host (not the VM)
+curl -I https://<EXTERNAL_IP>.nip.io
+```
+Should return a response from nginx, not hang.
