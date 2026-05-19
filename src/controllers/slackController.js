@@ -309,8 +309,12 @@ async function handleInteraction(req, res) {
       jfmVerdicts: session.files.jfm_verdicts || null,
     };
 
+    if (session.promptTs) {
+      await slackUpdate(session.channel, session.promptTs, [], '⏳ Pipeline started! You\'ll get a notification here when it\'s done.');
+    } else {
+      await slackPost(channel, [], '⏳ Pipeline started! You\'ll get a notification here when it\'s done.');
+    }
     await deleteSession(userId);
-    await slackPost(channel, [], '⏳ Pipeline started! You\'ll get a notification here when it\'s done.');
 
     runPipeline(files, {}, null, { source: 'slack', user: payload.user.username || payload.user.id })
       .then(() => clearPendingRun())
