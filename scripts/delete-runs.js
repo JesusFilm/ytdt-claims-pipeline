@@ -1,6 +1,7 @@
 /*
  * Delete pipeline_runs from MongoDB by ID.
  * Usage: node scripts/delete-runs.js <runId> [<runId>...]
+ * requires MONGODB_URI env var with connection string to the database
  */
 require('dotenv').config();
 const { MongoClient, ObjectId } = require('mongodb');

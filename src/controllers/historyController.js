@@ -174,7 +174,7 @@ async function stopRun(req, res) {
 async function restartStep(req, res) {
   try {
     const { id: runId, stepName } = req.params;
-    const RESTARTABLE_STEPS = ['export_views', 'enrich_ml', 'upload_drive'];
+    const RESTARTABLE_STEPS = ['enrich_shorts', 'export_views', 'enrich_ml', 'upload_drive'];
 
     // Validate step is restartable
     if (!RESTARTABLE_STEPS.includes(stepName)) {
