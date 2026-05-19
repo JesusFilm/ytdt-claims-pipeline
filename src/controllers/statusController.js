@@ -54,18 +54,21 @@ function getHealth(req, res) {
       commit: GIT_COMMIT,
     };
 
-    // Check ML service
-    try {
-      const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT, { timeout: 5000 });
-      const mlResponse = await mlClient.get('/health');
-      health.enrich_ml_status = 'healthy';
-      health.enrich_ml_version = mlResponse.data.version;
-      health.enrich_ml_branch = mlResponse.data.branch;
-      health.enrich_ml_commit = mlResponse.data.commit; 
-      
-    } catch (error) {
-      health.enrich_ml_status = 'unhealthy';
-      health.status = 'degraded';
+    if (!process.env.ML_API_ENDPOINT) {
+      health.enrich_ml_status = 'disabled';
+    } else {
+      try {
+        const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT, { timeout: 5000 });
+        const mlResponse = await mlClient.get('/health');
+        health.enrich_ml_status = 'healthy';
+        health.enrich_ml_version = mlResponse.data.version;
+        health.enrich_ml_branch = mlResponse.data.branch;
+        health.enrich_ml_commit = mlResponse.data.commit;
+
+      } catch (error) {
+        health.enrich_ml_status = 'unhealthy';
+        health.status = 'degraded';
+      }
     }
 
     return health;
