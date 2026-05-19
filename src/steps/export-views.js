@@ -2,6 +2,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const { stringify } = require('csv-stringify/sync');
 const { generateRunFolderName } = require('../lib/utils');
+const enrichUnprocessedClaims = require('../lib/enrichUnprocessedClaims');
 
 
 async function exportViews(context) {
@@ -37,6 +38,12 @@ async function exportViews(context) {
       }
       return plain;
     });
+
+    // not-available / licensed / media-component enrichment (traditionally by YT-Validator) 
+    // so these columns are present in the exported unprocessed claims CSV.
+    if (view.name === 'export_unprocessed_claims' ) {
+      await enrichUnprocessedClaims(plainRows);
+    }
 
     // Convert to CSV
     const csv = stringify(plainRows, { header: true });

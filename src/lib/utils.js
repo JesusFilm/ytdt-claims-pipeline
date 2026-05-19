@@ -57,3 +57,7 @@ module.exports.mapWithConcurrency = async (items, concurrency, fn, delayMs = 500
   }
   return results;
 }
+
+
+module.exports.readCsv = (file) => fs.existsSync(file) ? 
+  parse(fs.readFileSync(file), { columns: true, skip_empty_lines: true }) : null;
