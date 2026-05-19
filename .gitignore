@@ -1,7 +1,7 @@
 
 node_modules/
-config/
-!config/oauth
+config/*
+!config/oauth.js
 dist/
 logs/
 
