@@ -1,6 +1,4 @@
-const fs = require('fs');
 const path = require('path');
-const { parse } = require('csv-parse/sync');
 const { google } = require('googleapis');
 const { readCsv } = require('./utils');
 

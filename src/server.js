@@ -138,6 +138,12 @@ process.on('SIGTERM', async () => {
 async function startServer() {
   await initializeApp();
 
+  if (process.env.ML_API_ENDPOINT) {
+    console.log(`ML service enabled at ${process.env.ML_API_ENDPOINT}`);
+  } else {
+    console.log('ML service disabled: ML_API_ENDPOINT not set');
+  }
+
   app.listen(PORT, () => {
     console.log(`API running on port ${PORT}`);
   });

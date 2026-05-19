@@ -1,4 +1,6 @@
 const { format } = require('date-fns');
+const { parse } = require('csv-parse/sync');
+const fs = require('fs');
 
 
 module.exports.cleanRow = function (row) {
