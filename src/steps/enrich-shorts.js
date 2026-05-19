@@ -22,6 +22,7 @@ async function enrichShorts(context) {
 
   if (!rows.length) {
     console.log('enrich_shorts: no eligible videos to check today');
+    context.outputs.enrichShorts = { checked: 0, marked: 0 };
     return;
   }
 
