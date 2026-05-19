@@ -114,7 +114,7 @@ async function testFullPipeline() {
     const result = await runPipeline(files, { 
       skipVPN: process.env.SKIP_VPN === 'true',
       testMode: true 
-    });
+    }, null, { source: 'test', user: 'test-script' });
 
     console.log('\n✅ Pipeline completed successfully!');
     console.log('Result:', JSON.stringify(result, null, 2));

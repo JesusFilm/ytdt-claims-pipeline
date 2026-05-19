@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { formatDuration } = require('./utils');
 
-async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null) {
+async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null, triggeredBy = null) {
   if (!process.env.SLACK_BOT_TOKEN) {
     console.log('Slack notifications disabled (no SLACK_BOT_TOKEN)');
     return;
@@ -16,7 +16,8 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   const durationText = formatDuration(duration);
   const startTimeText = startTime ? new Date(startTime).toLocaleString() : 'Unknown';
   const driveFolderUrl = results?.driveFolderUrl;
-  
+  const frontendUrl = process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/?run=${runId}` : null;
+
   // Build files list
   const uploadedFiles = [];
   if (files.claims?.matter_entertainment) uploadedFiles.push('Claims (ME)');
@@ -24,14 +25,15 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   if (files.mcnVerdicts) uploadedFiles.push('MCN Verdicts');
   if (files.jfmVerdicts) uploadedFiles.push('JFM Verdicts');
   const filesText = uploadedFiles.length > 0 ? uploadedFiles.join(', ') : 'None';
-  
+  const triggerText = triggeredBy ? `\nTriggered: ${triggeredBy.source} by ${triggeredBy.user}` : '';
+
   // Build claims section
   let claimsText = '';
   if (results?.claimsProcessed) {
     const claimsData = results.claimsProcessed;
     const sources = [];
     let totalNew = 0;
-    
+
     if (claimsData.matter_entertainment) {
       sources.push(`  • Matter Entertainment: ${claimsData.matter_entertainment.new.toLocaleString()} new / ${claimsData.matter_entertainment.total.toLocaleString()} total`);
       totalNew += claimsData.matter_entertainment.new;
@@ -40,12 +42,12 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
       sources.push(`  • Matter 2: ${claimsData.matter_2.new.toLocaleString()} new / ${claimsData.matter_2.total.toLocaleString()} total`);
       totalNew += claimsData.matter_2.new;
     }
-    
+
     if (sources.length > 0) {
       claimsText = `\n\n*Claims Processed (${totalNew.toLocaleString()} new)*\n${sources.join('\n')}`;
     }
   }
-  
+
   // Build verdicts section
   let verdictsText = '';
   const mcnProcessed = results?.mcnVerdicts?.processed || 0;
@@ -63,7 +65,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     const { checked, marked } = results.enrichShorts;
     shortsText = `\n\n*Shorts Detected (${marked.toLocaleString()} / ${checked.toLocaleString()} checked)*`;
   }
-  
+
   // Build issues section
   let issuesText = '';
   const invalidMCIDs = (results?.mcnVerdicts?.invalidMCIDs?.length || 0) + (results?.jfmVerdicts?.invalidMCIDs?.length || 0);
@@ -74,8 +76,8 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     if (invalidLanguageIDs) issues.push(`  • Invalid Language IDs: ${invalidLanguageIDs}`);
     issuesText = `\n\n*Data Quality Issues*\n${issues.join('\n')}`;
   }
-  
-  let text = `${emoji} *Pipeline Run ${statusText}*\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}\nFiles: ${filesText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
+
+  let text = `${emoji} *Pipeline Run ${statusText}*\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}${triggerText}\nFiles: ${filesText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
   if (error) {
     text += `\n\n*Error*\n${error}`;
   }
@@ -90,20 +92,22 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     }
   ];
 
-  // Add Drive link button for successful runs
-  if (status === 'completed' && driveFolderUrl) {
+  // Add Console link button for all runs
+  if (frontendUrl) {
     blocks.push({
       type: 'actions',
       elements: [
         {
           type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '📁 View in Drive'
-          },
+          text: { type: 'plain_text', text: '🔍 View in Console' },
+          url: frontendUrl,
+        },
+        ...(status === 'completed' && driveFolderUrl ? [{
+          type: 'button',
+          text: { type: 'plain_text', text: '📁 View in Drive' },
           url: driveFolderUrl,
           style: 'primary'
-        }
+        }] : [])
       ]
     });
   }
@@ -143,8 +147,30 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     );
     console.log(`Slack notification sent for run ${runId}`);
   } catch (err) {
-    console.error('Failed to send Slack notification:', err.message);
+    console.error('Failed to send Slack notification:', err.message, err.code, err.response?.data);
   }
 }
 
-module.exports = { sendPipelineNotification };
+
+async function notifyClaimsStaged(claims, stagedBy) {
+  if (!process.env.SLACK_BOT_TOKEN) return;
+  const channel = process.env.SLACK_CHANNEL || '#ytdt-pipeline';
+
+  const sources = [];
+  if (claims.matter_entertainment) sources.push('Matter Entertainment');
+  if (claims.matter_2) sources.push('Matter 2');
+
+  const text = `📋 *Claims staged by ${stagedBy}*\nSources: ${sources.join(', ')}\nReady for \`/run-verdicts\``;
+
+  try {
+    await axios.post(
+      'https://slack.com/api/chat.postMessage',
+      { channel, text },
+      { headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    console.error('Failed to notify claims staged:', err.message);
+  }
+}
+
+module.exports = { sendPipelineNotification, notifyClaimsStaged };
