@@ -26,7 +26,6 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   if (files.jfmVerdicts) uploadedFiles.push('JFM Verdicts');
   const filesText = uploadedFiles.length > 0 ? uploadedFiles.join(', ') : 'None';
   const triggerText = triggeredBy ? `\nTriggered: ${triggeredBy.source} by ${triggeredBy.user}` : '';
-  const stepText = stepName ? `\nStep: ${stepName}` : '';
 
   // Build claims section
   let claimsText = '';
@@ -78,7 +77,11 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     issuesText = `\n\n*Data Quality Issues*\n${issues.join('\n')}`;
   }
 
-  let text = `${emoji} *Pipeline Run ${statusText}*\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}${triggerText}${stepText}\nFiles: ${filesText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
+  const header = stepName
+    ? `🔁 *Step Restarted: ${stepName}*`
+    : `${emoji} *Pipeline Run ${statusText}*`;
+  let text = `${header}\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}${triggerText}\nFiles: ${filesText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
+  
   if (error) {
     text += `\n\n*Error*\n${error}`;
   }
@@ -136,7 +139,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
       'https://slack.com/api/chat.postMessage',
       {
         channel,
-        text: `Pipeline ${statusText}`,
+        text: stepName ? `Step restarted: ${stepName}` : `Pipeline ${statusText}`,
         blocks
       },
       {
