@@ -68,7 +68,8 @@ function getPipelineSteps(files) {
       description: 'Generates CSV exports of processed claims, owned videos, and unprocessed data'
     },
     {
-      name: 'enrich_ml', fn: enrichML, condition: () => process.env.GOOGLE_DRIVE_NAME,
+      name: 'enrich_ml', fn: enrichML, 
+      condition: () => process.env.ML_API_ENDPOINT && process.env.GOOGLE_DRIVE_NAME,
       title: 'Enrich ML',
       description: 'Sends unprocessed claims to ML service for verdict probability predictions'
     },
