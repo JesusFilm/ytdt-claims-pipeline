@@ -97,7 +97,11 @@ async function processVerdictFile(mysql, filePath, type, context) {
           WHEN v.language_id = '-' THEN NULL 
           ELSE v.language_id 
         END,
-        c.no_code = CASE WHEN v.no_code IS NOT NULL THEN v.no_code ELSE c.no_code END,
+        c.no_code = CASE 
+          WHEN v.no_code IS NULL THEN c.no_code
+          WHEN v.no_code = '-' THEN NULL 
+          ELSE v.no_code 
+        END,
         c.${timestampField} = NOW()
     WHERE c.video_id = v.video_id
   `);
