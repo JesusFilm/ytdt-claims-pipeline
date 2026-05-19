@@ -44,7 +44,7 @@ async function initializeApp() {
 }
 
 // Main pipeline endpoint
-app.post('/api/run',
+app.post('/api/run', authenticateRequest,
   upload.fields([
     { name: 'claims_matter_entertainment', maxCount: 1 },
     { name: 'claims_matter_2', maxCount: 1 },

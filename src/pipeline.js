@@ -470,7 +470,8 @@ async function syncRunState(runId, completionData = {}) {
           run.files,
           run.startTime,
           updateFields.results || run.results,
-          run.triggeredBy
+          run.triggeredBy,
+          completionData.stepName || null
         );
 
         // Mark as notified to prevent duplicates
@@ -602,7 +603,7 @@ async function runSingleStep(runId, stepName, run) {
       );
     }
 
-    await syncRunState(new ObjectId(runId));
+    await syncRunState(new ObjectId(runId), { stepName });
     console.log(`✓ Step ${stepName} restarted successfully`);
 
   } catch (stepError) {
@@ -618,7 +619,7 @@ async function runSingleStep(runId, stepName, run) {
       }
     );
 
-    await syncRunState(new ObjectId(runId));
+    await syncRunState(new ObjectId(runId), { stepName });
     throw stepError;
 
   } finally {

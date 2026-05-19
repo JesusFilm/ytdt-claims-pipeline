@@ -214,14 +214,19 @@ async function restartStep(req, res) {
       {
         $set: {
           [`startedSteps.${stepIndex}.status`]: 'running',
-          [`startedSteps.${stepIndex}.restarted_at`]: new Date()
+          [`startedSteps.${stepIndex}.restarted_at`]: new Date(),
+          triggeredBy: { source: 'ui', user: req.user?.email || 'unknown' },
+          slackNotified: false // unblock restart notifications
         }
       }
     );
 
+    // Re-fetch so runSingleStep sees the running state
+    const freshRun = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) })
+
     // Run step in background
     setImmediate(() => {
-      runSingleStep(runId, stepName, run)
+      runSingleStep(runId, stepName, freshRun)
         .catch(error => {
           console.error(`Step restart error (${stepName}):`, error);
         });
