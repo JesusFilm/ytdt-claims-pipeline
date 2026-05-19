@@ -511,6 +511,7 @@ async function runSingleStep(runId, stepName, run) {
   const { generateRunFolderName } = require('./lib/utils');
 
   const stepMap = {
+    enrich_shorts: enrichShorts,
     export_views: exportViews,
     enrich_ml: enrichML,
     upload_drive: uploadDrive
@@ -532,8 +533,8 @@ async function runSingleStep(runId, stepName, run) {
     runId: new ObjectId(runId).toString()
   };
 
-  // Reconnect to MySQL (needed for export_views)
-  if (stepName === 'export_views') {
+  // Reconnect to MySQL (needed for steps that hit the DB)
+  if (stepName === 'export_views' || stepName === 'enrich_shorts') {
     // Ensure VPN is connected first
     const connectVPN = require('./steps/connect-vpn');
     await connectVPN(context);
@@ -626,8 +627,8 @@ async function runSingleStep(runId, stepName, run) {
       await context.connections.mysql.end();
       context.connections.mysql = null; // Prevent double-close
     }
-    // Disconnect VPN if we connected it for export_views
-    if (stepName === 'export_views' && context.connections.vpnProcess) {
+    // Disconnect VPN if we connected it 
+    if ((stepName === 'export_views' || stepName === 'enrich_shorts') && context.connections.vpnProcess) {
       const disconnectVPN = require('./steps/disconnect-vpn');
       await disconnectVPN(context);
     }
