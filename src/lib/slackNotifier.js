@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { formatDuration } = require('./utils');
 
-async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null, triggeredBy = null) {
+async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null, triggeredBy = null, stepName = null) {
   if (!process.env.SLACK_BOT_TOKEN) {
     console.log('Slack notifications disabled (no SLACK_BOT_TOKEN)');
     return;
@@ -26,6 +26,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   if (files.jfmVerdicts) uploadedFiles.push('JFM Verdicts');
   const filesText = uploadedFiles.length > 0 ? uploadedFiles.join(', ') : 'None';
   const triggerText = triggeredBy ? `\nTriggered: ${triggeredBy.source} by ${triggeredBy.user}` : '';
+  const stepText = stepName ? `\nStep: ${stepName}` : '';
 
   // Build claims section
   let claimsText = '';
@@ -77,7 +78,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     issuesText = `\n\n*Data Quality Issues*\n${issues.join('\n')}`;
   }
 
-  let text = `${emoji} *Pipeline Run ${statusText}*\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}${triggerText}\nFiles: ${filesText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
+  let text = `${emoji} *Pipeline Run ${statusText}*\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}${triggerText}${stepText}\nFiles: ${filesText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
   if (error) {
     text += `\n\n*Error*\n${error}`;
   }
