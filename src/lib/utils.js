@@ -11,7 +11,7 @@ module.exports.cleanRow = function (row) {
       value = value.replace(/\r/g, '');
       value = value.replace(/^'|'$/g, ''); // Remove Excel quotes
     }
-    cleaned[key] = value;
+    cleaned[key.trim()] = value;
   });
   return cleaned;
 }
