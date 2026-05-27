@@ -18,10 +18,10 @@ const VALID_COLUMNS = {
     'engaged_views', 'video_matching_length', 'is_shorts_eligible'
   ],
   mcnVerdicts: [
-    'video_id', 'verdict', 'media_component_id', 'language_id', 'wave', 'no_code'
+    'video_id', 'verdict', 'media_component_id', 'language_id', 'wave', 'no_code', 'is_edited'
   ],
   jfmVerdicts: [
-    'video_id', 'verdict', 'media_component_id', 'language_id', 'wave', 'no_code'
+    'video_id', 'verdict', 'media_component_id', 'language_id', 'wave', 'no_code', 'is_edited'
   ]
 };
 
@@ -63,7 +63,7 @@ async function validateInputCSVs(context) {
         }
 
         rows[0] = normalizeClaimsColumns(rows[0]);
-        const actualColumns = Object.keys(rows[0]).filter(col => col.trim() !== '');
+        const actualColumns = Object.keys(rows[0]).map(c => c.trim()).filter(col => col !== '');
         const validColumns = VALID_COLUMNS.claims;
         const invalidColumns = actualColumns.filter(col => !validColumns.includes(col));
 
@@ -100,7 +100,7 @@ async function validateInputCSVs(context) {
         continue;
       }
 
-      const actualColumns = Object.keys(rows[0]).filter(col => col.trim() !== '');
+      const actualColumns = Object.keys(rows[0]).map(c => c.trim()).filter(col => col !== '');
       const validColumns = VALID_COLUMNS[fileType];
       const invalidColumns = actualColumns.filter(col => !validColumns.includes(col));
 

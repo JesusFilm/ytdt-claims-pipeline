@@ -41,7 +41,8 @@ async function processVerdictFile(mysql, filePath, type, context) {
       media_component_id VARCHAR(255),
       language_id VARCHAR(255),
       wave VARCHAR(100),
-      no_code VARCHAR(255)
+      no_code VARCHAR(255),
+      is_edited TINYINT(1)
     )
   `);
 
@@ -58,7 +59,8 @@ async function processVerdictFile(mysql, filePath, type, context) {
       media_component_id: cleanedRow.media_component_id === '' ? null : cleanedRow.media_component_id,
       language_id: cleanedRow.language_id === '' ? null : cleanedRow.language_id,
       wave: cleanedRow.wave || '0',
-      no_code: cleanedRow.no_code === '' ? null : cleanedRow.no_code
+      no_code: cleanedRow.no_code === '' ? null : cleanedRow.no_code,
+      is_edited: cleanedRow.is_edited === '' || cleanedRow.is_edited == null ? null : Number(cleanedRow.is_edited)
     };
   });
 
@@ -68,14 +70,20 @@ async function processVerdictFile(mysql, filePath, type, context) {
     const values = batch.map(r =>
       `(${mysql.escape(r.video_id)}, ${mysql.escape(r.verdict)}, 
         ${mysql.escape(r.media_component_id)}, ${mysql.escape(r.language_id)}, 
-        ${mysql.escape(r.wave)}, ${mysql.escape(r.no_code)})`
+        ${mysql.escape(r.wave)}, ${mysql.escape(r.no_code)}, ${mysql.escape(r.is_edited)})`
     ).join(',');
 
     await mysql.query(`
       INSERT INTO ${tableName} 
-      (video_id, verdict, media_component_id, language_id, wave, no_code)
+      (video_id, verdict, media_component_id, language_id, wave, no_code, is_edited)
       VALUES ${values}
-      ON DUPLICATE KEY UPDATE verdict = VALUES(verdict)
+      ON DUPLICATE KEY UPDATE 
+        verdict = VALUES(verdict),
+        media_component_id = VALUES(media_component_id),
+        language_id = VALUES(language_id),
+        wave = VALUES(wave),
+        no_code = VALUES(no_code),
+        is_edited = VALUES(is_edited)
     `);
   }
 
@@ -102,6 +110,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
           WHEN v.no_code = '-' THEN NULL 
           ELSE v.no_code 
         END,
+        c.is_edited = CASE WHEN v.is_edited IS NOT NULL THEN v.is_edited ELSE c.is_edited END,
         c.${timestampField} = NOW()
     WHERE c.video_id = v.video_id
   `);
