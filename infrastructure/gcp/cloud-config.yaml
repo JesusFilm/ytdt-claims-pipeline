@@ -12,7 +12,9 @@ write_files:
     # Install packages
     echo "Installing packages..."
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y nginx certbot python3-certbot-nginx wget curl git openvpn p7zip-full
+    # git-lfs is the fallback path for the model artifact when model-bucket is
+    # unset; without it a clone yields ~130-byte pointer stubs instead of files.
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nginx certbot python3-certbot-nginx wget curl git git-lfs openvpn p7zip-full
     
     # Install Node.js v20
     echo "Installing Node.js v20..."
@@ -31,7 +33,13 @@ write_files:
     
     # Get configuration from metadata
     YT_VALIDATOR_REPO=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/yt-validator-repo || echo "https://github.com/matthew-jf/YT-Validator.git")
-    YT_VALIDATOR_BRANCH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/yt-validator-branch || echo "chore/cli-api-wrapper")
+    # NOTE: must be a branch that carries the ML pipeline. chore/cli-api-wrapper
+    # has no model and no trey_pipeline/, so ML enrichment cannot work on it.
+    YT_VALIDATOR_BRANCH=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/yt-validator-branch || echo "ML-Pipeline")
+    # Model artifact (~1.4 GB) lives in GCS, not git. Versioned by prefix so a
+    # rollback is a metadata change rather than a rebuild.
+    MODEL_BUCKET=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/model-bucket || echo "")
+    MODEL_VERSION=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/model-version || echo "v1")
     PROJECT_ID=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/project-id || echo "jfp-data-warehouse")
     SSL_EMAIL=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/ssl-email || echo "me@ceduth.dev")
     LETSENCRYPT_STAGING=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/letsencrypt-staging || echo "")
@@ -66,13 +74,34 @@ write_files:
         fi
     fi
 
-    # Uncompress YT.csv training data
+    # Fetch the model artifact from GCS.
+    # It is not in git: GitHub caps files at 100 MB and the RandomForest files
+    # are ~687 MB each. The clone above therefore carries no usable model, and
+    # fetch_model.sh also rejects unresolved Git LFS pointers, which previously
+    # produced a service that reported healthy while every prediction failed.
+    echo "Fetching model artifact..."
+    if [ -n "${MODEL_BUCKET}" ]; then
+        MODEL_BUCKET="${MODEL_BUCKET}" MODEL_VERSION="${MODEL_VERSION}" \
+            bash /opt/yt-validator/scripts/fetch_model.sh \
+            || echo "ERROR: model fetch failed - YT-Validator will report unhealthy"
+    else
+        echo "WARNING: model-bucket metadata not set; falling back to Git LFS"
+        if command -v git-lfs >/dev/null 2>&1; then
+            git -C /opt/yt-validator lfs install --local
+            git -C /opt/yt-validator lfs pull
+        else
+            echo "ERROR: no model-bucket and git-lfs is not installed"
+        fi
+    fi
+
+    # Uncompress YT.csv training data (legacy; unused by the current pipeline,
+    # and the archive was removed from the repo in c8fca41)
     echo "Uncompressing YT.csv.7z..."
     if [ -f /opt/yt-validator/YT.csv.7z ]; then
         7z x /opt/yt-validator/YT.csv.7z -o/opt/yt-validator
         echo "YT.csv extracted successfully"
     else
-        echo "WARNING: YT.csv.7z not found in /opt/yt-validator"
+        echo "YT.csv.7z not present (expected; no longer used)"
     fi
     
     # Download ytdt-claims-pipeline from GCS
@@ -206,6 +235,11 @@ write_files:
     Environment="FLASK_RUN_HOST=0.0.0.0"
     Environment="FLASK_RUN_PORT=3001"
     Environment="FLASK_DEBUG=0"
+    # ag_challenger_deploy is the pruned inference-only artifact (55% smaller,
+    # predictions bit-identical). Set to ag_challenger to serve the full one.
+    Environment="MODEL_NAME=__MODEL_NAME__"
+    # Model is loaded once at startup, so allow time before the first request.
+    TimeoutStartSec=600
     
     ExecStartPre=/bin/bash -c 'echo "BASE_URL=http://localhost:3001" > /opt/yt-validator/.env'
     ExecStartPre=/bin/bash -c 'echo "YT_API_KEY=__YT_API_KEY__" >> /opt/yt-validator/.env'    

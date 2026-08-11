@@ -26,7 +26,13 @@ export BOOT_DISK_SIZE=${BOOT_DISK_SIZE:-"50GB"}
 
 # YT-Validator Configuration
 export YT_VALIDATOR_REPO=${YT_VALIDATOR_REPO:-"https://github.com/matthew-jf/YT-Validator.git"}
-export YT_VALIDATOR_BRANCH=${YT_VALIDATOR_BRANCH:-"chore/cli-api-wrapper"}
+# Must carry the ML pipeline; chore/cli-api-wrapper has no model or trey_pipeline/
+export YT_VALIDATOR_BRANCH=${YT_VALIDATOR_BRANCH:-"ML-Pipeline"}
+# Model artifact in GCS (see YT-Validator/scripts/upload_model.sh). Unset falls
+# back to Git LFS, which is slower and needs git-lfs on the VM.
+export MODEL_BUCKET=${MODEL_BUCKET:-""}
+export MODEL_VERSION=${MODEL_VERSION:-"v1"}
+export MODEL_NAME=${MODEL_NAME:-"ag_challenger_deploy"}
 
 # SSL Certificate Email
 export SSL_EMAIL=${SSL_EMAIL:-"me@ceduth.dev"}
@@ -145,11 +151,13 @@ create_vm() {
     sed -i "" "s#__GOOGLE_CLIENT_SECRET__#${GOOGLE_CLIENT_SECRET}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__GOOGLE_WORKSPACE_DOMAINS__#${GOOGLE_WORKSPACE_DOMAINS}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__YT_API_KEY__#${YT_API_KEY}#g" "$TEMP_CLOUD_CONFIG"
-    
+    sed -i "" "s#__MODEL_NAME__#${MODEL_NAME:-ag_challenger_deploy}#g" "$TEMP_CLOUD_CONFIG"
+
     # Create VM with cloud-config
     log "Creating VM with configuration:"
     log "  YT-Validator Repo: ${YT_VALIDATOR_REPO}"
     log "  YT-Validator Branch: ${YT_VALIDATOR_BRANCH}"
+    log "  Model: ${MODEL_NAME:-ag_challenger_deploy} @ ${MODEL_BUCKET:-<unset, will fall back to Git LFS>} ${MODEL_VERSION:-v1}"
     log "  SSL Email: ${SSL_EMAIL}"
     log "  Source: Local (uploaded to GCS)"
     
@@ -166,6 +174,8 @@ create_vm() {
         --metadata=enable-oslogin=TRUE,\
 yt-validator-repo=${YT_VALIDATOR_REPO},\
 yt-validator-branch=${YT_VALIDATOR_BRANCH},\
+model-bucket=${MODEL_BUCKET},\
+model-version=${MODEL_VERSION:-v1},\
 ssl-email=${SSL_EMAIL},\
 letsencrypt-staging=${LETSENCRYPT_STAGING},\
 project-id=${PROJECT_ID}
