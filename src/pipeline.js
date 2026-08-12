@@ -328,7 +328,9 @@ async function getCurrentPipelineStatus() {
       return { running: false, status: 'timeout', currentStep: null, progress: 0, steps: [] };
     }
 
-    const allSteps = getPipelineSteps({}).map(s => s.name);
+    // Honour the run's step filter, otherwise a scoring-only run reports every
+    // step in the pipeline and its progress is computed against the wrong total.
+    const allSteps = getPipelineSteps(currentRun.files || {}, currentRun.options?.steps).map(s => s.name);
     const completedCount = currentRun.startedSteps?.filter(s => s.status === 'completed').length || 0;
     const progress = Math.round((completedCount / allSteps.length) * 100);
 
