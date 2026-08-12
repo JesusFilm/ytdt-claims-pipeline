@@ -154,24 +154,7 @@ gcloud compute instances create ytdt-mongodb \
   --boot-disk-size=30GB
 ```
 
-**Step 2) Make MongoDB accessible from Cloud Run Cloud**
-
-* Private GCE IPs are not accessible from Cloud Run without VPC connector!
-
-```shell
-gcloud compute networks vpc-access connectors create ytdt-connector \
-  --network default \
-  --region us-east1 \
-  --range 10.8.0.0/28
-```
-
-* `--range 10.8.0.0/28` below is an IP range for the VPC connector that shouldn't overlap with our existing subnets.
-Check your existing subnets to find a safe range:
-```shell
-gcloud compute networks subnets list --network=default
-```
-
-**Step 3) Set MONGODB_URI env to production database**
+**Step 2) Set MONGODB_URI env to production database**
 
 Set `MONGODB_URI=mongodb://<INTERNAL_IP>:27017/ytdt-pipeline` in `.env.production`.
 Get internal VM IP from:
