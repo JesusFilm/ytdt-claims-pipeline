@@ -84,7 +84,9 @@ async function retryRun(req, res) {
     );
 
     setImmediate(() => {
-      runPipeline(originalRun.files, {}, runId)
+      // Preserve the original step filter, so retrying a scoring-only run does
+      // not silently expand into a full pipeline.
+      runPipeline(originalRun.files, originalRun.options || {}, runId)
         .catch(error => {
           console.error('Retry pipeline error:', error);
         });

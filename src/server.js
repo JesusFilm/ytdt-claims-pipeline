@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
-const { runPipeline } = require('./pipeline');
+const { runPipeline, getPipelineStepNames } = require('./pipeline');
 const { connectToDatabase, closeConnection } = require('./database');
 
 const upload = require('./middleware/upload');
@@ -69,6 +69,26 @@ app.post('/api/run', authenticateRequest,
       jfmVerdicts: req.files.jfm_verdicts?.[0]?.path
     };
 
+    // Optional comma-separated subset of steps, e.g. exporting and scoring
+    // current unprocessed claims without importing anything. Absent means the
+    // full pipeline, which is the existing behaviour.
+    let steps;
+    if (req.body?.steps) {
+      const requested = String(req.body.steps).split(',').map(s => s.trim()).filter(Boolean);
+      const known = getPipelineStepNames();
+      const unknown = requested.filter(name => !known.includes(name));
+      if (unknown.length) {
+        return res.status(400).json({
+          error: `Unknown step(s): ${unknown.join(', ')}`,
+          knownSteps: known
+        });
+      }
+      if (!requested.length) {
+        return res.status(400).json({ error: 'steps was provided but empty' });
+      }
+      steps = requested;
+    }
+
     // Start pipeline
     pipelineStatus = {
       running: true,
@@ -78,7 +98,7 @@ app.post('/api/run', authenticateRequest,
     };
 
     // Run pipeline in background
-    runPipeline(files, {}, null, { source: 'ui', user: req.user?.email || 'unknown' })
+    runPipeline(files, steps ? { steps } : {}, null, { source: 'ui', user: req.user?.email || 'unknown' })
       .then(async (result) => {
         pipelineStatus = {
           running: false,

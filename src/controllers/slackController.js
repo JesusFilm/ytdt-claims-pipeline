@@ -240,7 +240,8 @@ async function handleInteraction(req, res) {
       const db = getDatabase();
       const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
       if (!run) return;
-      runPipeline(run.files, {}, runId).catch(err => console.error('Pipeline rerun failed:', err));
+      // Preserve the original step filter (see historyController.retryRun)
+      runPipeline(run.files, run.options || {}, runId).catch(err => console.error('Pipeline rerun failed:', err));
     } catch (err) {
       console.error('Interaction error:', err);
     }
