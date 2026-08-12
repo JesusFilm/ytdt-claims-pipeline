@@ -15,7 +15,19 @@ const { intervalToDuration, formatDuration } = require('date-fns');
 
 
 const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60;
-function getPipelineSteps(files) {
+// `only` restricts the run to a subset of steps, e.g. exporting and scoring
+// without importing anything. Omitted (the default) returns the full pipeline,
+// so existing callers are unaffected.
+//
+// Note this list is also re-derived when deciding whether a run has finished,
+// so the same `only` must be passed there or a filtered run never completes.
+function getPipelineSteps(files, only = null) {
+  const steps = getAllPipelineSteps(files);
+  if (!Array.isArray(only) || only.length === 0) return steps;
+  return steps.filter(step => only.includes(step.name));
+}
+
+function getAllPipelineSteps(files) {
   return [
     {
       name: 'connect_vpn', fn: connectVPN,
@@ -105,6 +117,7 @@ async function runPipeline(files, options = {}, existingRunId = null, triggeredB
       currentStep: 'starting',
       startedSteps: [],
       files: files,
+      options, // persisted so completion checks and retries see the same step filter
       triggeredBy, // { source: 'ui' | 'slack', user: 'email or slack name' }
       startTime: new Date(),
       error: null,
@@ -131,7 +144,7 @@ async function runPipeline(files, options = {}, existingRunId = null, triggeredB
       console.log(`Pipeline run started with ID: ${runId}`);
     }
 
-    const steps = getPipelineSteps(files);
+    const steps = getPipelineSteps(files, options.steps);
     for (const step of steps) {
 
       // Check if pipeline was stopped
@@ -429,7 +442,7 @@ async function syncRunState(runId, completionData = {}) {
     const allStepsCompleted = run?.startedSteps?.every(step => ['completed', 'skipped'].includes(step.status));
 
     // Count how many steps should have run (excluding skipped conditions)
-    const allStepNames = getPipelineSteps(run.files || {}).map(s => s.name);
+    const allStepNames = getPipelineSteps(run.files || {}, run.options?.steps).map(s => s.name);
     const startedStepNames = (run.startedSteps || []).map(s => s.name);
     const allStepsStarted = allStepNames.every(name => startedStepNames.includes(name));
 
@@ -636,10 +649,16 @@ async function runSingleStep(runId, stepName, run) {
   }
 }
 
+// Step names, for validating a requested subset without running anything.
+function getPipelineStepNames() {
+  return getAllPipelineSteps({}).map(step => step.name);
+}
+
 module.exports = {
   runPipeline,
   getCurrentPipelineStatus,
   syncRunState,
   checkTimeout,
-  runSingleStep
+  runSingleStep,
+  getPipelineStepNames
 };
