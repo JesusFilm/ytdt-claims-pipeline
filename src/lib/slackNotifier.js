@@ -1,7 +1,9 @@
 const axios = require('axios');
 const { formatDuration } = require('./utils');
 
-async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null, triggeredBy = null, stepName = null) {
+// Trailing options object rather than a tenth positional argument.
+//   options.steps - the run's step filter, when it ran only a subset
+async function sendPipelineNotification(runId, status, error = null, duration = null, files = {}, startTime = null, results = null, triggeredBy = null, stepName = null, options = {}) {
   if (!process.env.SLACK_BOT_TOKEN) {
     console.log('Slack notifications disabled (no SLACK_BOT_TOKEN)');
     return;
@@ -26,6 +28,13 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   if (files.jfmVerdicts) uploadedFiles.push('JFM Verdicts');
   const filesText = uploadedFiles.length > 0 ? uploadedFiles.join(', ') : 'None';
   const triggerText = triggeredBy ? `\nTriggered: ${triggeredBy.source} by ${triggeredBy.user}` : '';
+
+  // Only shown when the run was filtered to a subset of steps. Without it a
+  // scoring-only run and a full run with no uploads both read "Files: None"
+  // and are indistinguishable.
+  const stepsText = Array.isArray(options.steps) && options.steps.length
+    ? `\nSteps: ${options.steps.join(', ')}`
+    : '';
 
   // Build claims section
   let claimsText = '';
@@ -80,7 +89,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   const header = stepName
     ? `🔁 *Step Restarted: ${stepName}*`
     : `${emoji} *Pipeline Run ${statusText}*`;
-  let text = `${header}\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}${triggerText}\nFiles: ${filesText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
+  let text = `${header}\n━━━━━━━━━━━━━━━━━━━━━━\nDuration: ${durationText}\nStarted: ${startTimeText}${triggerText}\nFiles: ${filesText}${stepsText}\nRun: \`${runId}\`${claimsText}${verdictsText}${shortsText}${issuesText}`;
   
   if (error) {
     text += `\n\n*Error*\n${error}`;
