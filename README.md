@@ -115,7 +115,20 @@ curl -X POST $BASE_URL/api/run \
   -F "mcn_verdicts=@$TEST_DIR/test_mcn_verdicts.csv"
 ```
 
-* Test 4: Check status
+* Test 4: Score unprocessed claims only — no uploads
+
+Runs a subset of steps, exporting whatever is currently `verdict='U'` and
+scoring it, skipping the import and verdict steps. This is what the console's
+**Score Unprocessed Claims** button posts. Omit `steps` for the full pipeline.
+
+```shell
+curl -X POST $BASE_URL/api/run \
+  -F "steps=connect_vpn,export_views,enrich_ml,upload_drive"
+```
+
+Unknown step names are rejected with 400 and the valid list returned.
+
+* Test 5: Check status
 
 ```shell
 curl http://localhost:3000/api/status

@@ -44,6 +44,27 @@ All secrets and configuration come from `.env.production`.
   - `config/vpn/client.ovpn` (VPN configuration)
   - `config/service-account-key.json` (Google service account for Drive access)
 
+## Developing the console against a deployed API
+
+After Google login the API redirects to `FRONTEND_URL`, which is server-side —
+so by default every client, including `localhost` and Vercel previews, lands on
+the production console.
+
+To let another origin be returned to itself, add it to
+`FRONTEND_URL_ALLOWLIST` (comma-separated) in `/etc/ytdt-claims-pipeline/.env`:
+
+```
+FRONTEND_URL_ALLOWLIST=http://localhost:3002
+```
+
+`FRONTEND_URL` is always allowed and does not need listing. Anything not on the
+list falls back to it, so leaving this unset keeps today's behaviour.
+
+The console sends its own origin as `redirect_uri` when starting login; the API
+validates it and carries it through Google in the OAuth `state` parameter. The
+allowlist is a security boundary, not a convenience: the API appends a session
+token to that URL, so an unlisted origin must never be honoured.
+
 ## Deploy
 
 ```bash
