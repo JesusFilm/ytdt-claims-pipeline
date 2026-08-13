@@ -10,10 +10,55 @@ const client = new OAuth2Client(
   googleConfig.redirectUri
 );
 
+// Where the browser may be sent after login. FRONTEND_URL is always allowed;
+// FRONTEND_URL_ALLOWLIST adds comma-separated origins for local dev and
+// preview deploys.
+//
+// This list is the whole security boundary: the return origin arrives from the
+// client via the OAuth `state` parameter, and we append a session token to it.
+// Honouring an unlisted origin would hand that token to whoever asked, so an
+// unrecognised value must fall back to FRONTEND_URL rather than be trusted.
+function allowedOrigins() {
+  return [process.env.FRONTEND_URL, ...(process.env.FRONTEND_URL_ALLOWLIST || '').split(',')]
+    .map(url => (url || '').trim())
+    .filter(Boolean);
+}
+
+function resolveRedirect(requested) {
+  const fallback = process.env.FRONTEND_URL;
+  if (!requested) return fallback;
+
+  let candidate;
+  try {
+    candidate = new URL(requested);
+  } catch {
+    return fallback; // not a URL at all
+  }
+
+  const match = allowedOrigins().find(allowed => {
+    try {
+      return new URL(allowed).origin === candidate.origin;
+    } catch {
+      return false;
+    }
+  });
+
+  if (!match) {
+    console.warn(`Rejected OAuth redirect to unlisted origin: ${candidate.origin}`);
+    return fallback;
+  }
+  // Return the allowlisted entry, not the client's string, so a matching
+  // origin cannot smuggle in a path or query of its choosing.
+  return match;
+}
+
 async function getAuthUrl(req, res) {
   const authUrl = client.generateAuthUrl({
     access_type: 'offline',
     scope: googleConfig.scopes,
+    // Carried through Google and handed back to the callback untouched, so the
+    // browser returns to whichever console started the login.
+    state: resolveRedirect(req.query.redirect_uri),
   });
 
   res.json({ authUrl });
@@ -63,8 +108,11 @@ async function handleCallback(req, res) {
 
     const jwtToken = generateToken({ id: payload.sub, email: payload.email });
 
-    // Redirect to frontend with token
-    res.redirect(`${process.env.FRONTEND_URL}?token=${jwtToken}`);
+    // Redirect to frontend with token. `state` is re-validated rather than
+    // trusted: it round-tripped through the browser and could have been
+    // tampered with.
+    const target = resolveRedirect(req.query.state);
+    res.redirect(`${target}?token=${jwtToken}`);
 
   } catch (error) {
     console.error('OAuth callback error:', error);

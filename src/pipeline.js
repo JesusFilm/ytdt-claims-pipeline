@@ -486,7 +486,8 @@ async function syncRunState(runId, completionData = {}) {
           run.startTime,
           updateFields.results || run.results,
           run.triggeredBy,
-          completionData.stepName || null
+          completionData.stepName || null,
+          { steps: run.options?.steps }
         );
 
         // Mark as notified to prevent duplicates
