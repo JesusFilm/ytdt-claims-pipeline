@@ -1,4 +1,5 @@
 const { ObjectId } = require('mongodb');
+const { formatTimestamp } = require('../lib/utils');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
@@ -141,7 +142,7 @@ async function handleSlashCommand(req, res) {
   const sources = [];
   if (pendingRun.claims.matter_entertainment) sources.push('Matter Entertainment');
   if (pendingRun.claims.matter_2) sources.push('Matter 2');
-  const stagedText = `📋 *Staged claims:* ${sources.join(', ')}\n_Uploaded ${new Date(pendingRun.uploadedAt).toLocaleString()}_`;
+  const stagedText = `📋 *Staged claims:* ${sources.join(', ')}\n_Uploaded ${formatTimestamp(pendingRun.uploadedAt)}_`;
 
   const session = await createSession(userId);
   await updateSession(userId, { channel });

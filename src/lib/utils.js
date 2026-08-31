@@ -63,3 +63,24 @@ module.exports.mapWithConcurrency = async (items, concurrency, fn, delayMs = 500
 
 module.exports.readCsv = (file) => fs.existsSync(file) ? 
   parse(fs.readFileSync(file), { columns: true, skip_empty_lines: true }) : null;
+
+
+/**
+ * Render a timestamp in the team's timezone, labelled.
+ *
+ * Node's toLocaleString() with no options follows the *server's* locale, so the
+ * same run reads 7:12 AM in New York and 1:12 PM on a European host, with
+ * nothing saying which. Everyone reading these notifications works to Eastern
+ * time, so pin it there and print the zone (EDT/EST as appropriate).
+ */
+module.exports.formatTimestamp = (value, timeZone = process.env.DISPLAY_TIMEZONE || 'America/New_York') => {
+  if (!value) return 'Unknown';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return 'Unknown';
+  return d.toLocaleString('en-US', {
+    timeZone,
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', second: '2-digit',
+    timeZoneName: 'short'
+  });
+};
