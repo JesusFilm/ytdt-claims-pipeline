@@ -8,7 +8,7 @@ const fs = require('fs');
 
 const { createAuthedClient } = require('../lib/authtedClient.js');
 const { generateRunFolderName } = require('../lib/utils');
-const { getOrCreateFolder, uploadFile } = require('../lib/driveUpload');
+const { getRunFolderId, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
 
@@ -102,6 +102,7 @@ async function handleMLWebhook(req, res) {
 
     // Upload CSV to Drive if successful and Drive is configured
     let driveUpload = null;
+    let uploadError_ = null;
     if (status === 'completed' && csv_path && process.env.GOOGLE_DRIVE_NAME) {
       try {
 
@@ -118,11 +119,14 @@ async function handleMLWebhook(req, res) {
         });
 
         // Now upload to Drive
-        const folderId = await getOrCreateFolder(folderName, process.env.GOOGLE_DRIVE_NAME);
+        const folderId = await getRunFolderId(pipeline_run_id, folderName, process.env.GOOGLE_DRIVE_NAME);
         driveUpload = await uploadFile(tempPath, folderId, num_results);
         console.log(`ML result uploaded to Drive: ${driveUpload.path}`);
 
       } catch (uploadError) {
+        // Record it: a console.error here left the step green while the file
+        // never reached Drive, which is how this went unnoticed.
+        uploadError_ = uploadError.message;
         console.error('Drive upload failed:', uploadError.message);
       }
     }
@@ -140,6 +144,7 @@ async function handleMLWebhook(req, res) {
             rows: num_results,
             name: fileName,
             driveUpload,
+            driveUploadError: uploadError_,
             updated_at: new Date(),
           },
           'startedSteps.$[elem].status': 'completed',
