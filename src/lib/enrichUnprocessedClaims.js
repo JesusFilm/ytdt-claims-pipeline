@@ -9,9 +9,37 @@ const LICENSED_CSV = process.env.LICENSED_CSV || path.join(process.cwd(), 'data'
 const ASSETS_MEDIA_CSV = process.env.ASSETS_MEDIA_CSV || path.join(process.cwd(), 'data', 'assets_single_media_component.csv');
 
 
-// Port of check_videos_available_batch() — batches of 50 (API limit),
-// whole batch marked unavailable on error.
-async function checkVideosAvailableBatch(videoIds) {
+// YouTube ids may begin with '-'; spreadsheets prefix such cells with an
+// apostrophe so they are not read as formulas, and it survives into the export.
+// Sent to the API verbatim the id never matches, so the video is reported
+// missing — 107 of 4,538 rows in the July 2026 batch, every one of them flagged
+// unavailable against a 12% baseline.
+const normalizeVideoId = (value) => String(value).trim().replace(/^'+/, '');
+
+const OUTAGE_GIVE_UP = 3; // consecutive single-id failures meaning "API is down"
+
+// Ask YouTube which of these ids exist. null means the call kept failing.
+async function lookupIds(youtube, ids, retries) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const resp = await youtube.videos.list({ part: 'id', id: ids.join(',') });
+      return new Set((resp.data.items || []).map(it => it.id));
+    } catch (e) {
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 2 ** attempt * 1000));
+      } else {
+        console.error(`Availability lookup failed for ${ids.length} id(s): ${e.message}`);
+      }
+    }
+  }
+  return null;
+}
+
+// Port of check_videos_available_batch() — batches of 50 (API limit).
+// Returns id -> true (present) / false (missing) / null (unknown). Callers must
+// treat null as unknown, never as unavailable: a failed lookup is not evidence
+// about the video, and marking it so auto-rejects a valid claim.
+async function checkVideosAvailableBatch(videoIds, retries = 2) {
   const results = {};
   const batchSize = 50; //  50 ids per request = 1 quota unit
 
@@ -21,15 +49,34 @@ async function checkVideosAvailableBatch(videoIds) {
 
   const youtube = google.youtube({ version: 'v3', auth: process.env.YT_API_KEY });
   const unique = [...new Set(videoIds.filter(Boolean))];
-  
+
   for (let i = 0; i < unique.length; i += batchSize) {
     const batch = unique.slice(i, i + batchSize);
-    try {
-      const resp = await youtube.videos.list({ part: 'id', id: batch.join(',') });
-      const found = new Set((resp.data.items || []).map(it => it.id));
-      for (const id of batch) results[id] = found.has(id);
-    } catch (e) {
-      for (const id of batch) results[id] = false;
+    const lookup = new Map(batch.map(id => [normalizeVideoId(id), id]));
+
+    const found = await lookupIds(youtube, [...lookup.keys()], retries);
+    if (found) {
+      for (const [clean, original] of lookup) results[original] = found.has(clean);
+      continue;
+    }
+
+    // The batch call kept failing. Retry the ids one at a time so a single
+    // unacceptable id cannot condemn the other 49; give up once several in a
+    // row fail, which means the API is down rather than an id being bad.
+    let consecutiveFailures = 0;
+    for (const [clean, original] of lookup) {
+      if (consecutiveFailures >= OUTAGE_GIVE_UP) {
+        results[original] = null;
+        continue;
+      }
+      const one = await lookupIds(youtube, [clean], 0);
+      if (one === null) {
+        consecutiveFailures += 1;
+        results[original] = null;
+      } else {
+        consecutiveFailures = 0;
+        results[original] = one.has(clean);
+      }
     }
   }
   return results;
@@ -70,7 +117,11 @@ async function enrichUnprocessedClaims(rows) {
     row.media_component_id = mc === undefined || mc === null ? '' : String(mc);
 
     if (hasVideoId) {
-      row.video_available = availableMap[row.video_id] ? 'True' : 'False';
+      const available = availableMap[row.video_id];
+      // '' when the lookup could not determine it: pipeline.py reads a blank as
+      // unknown and routes the claim to review rather than auto-rejecting it.
+      row.video_available = available === null || available === undefined
+        ? '' : (available ? 'True' : 'False');
     } else {
       row.video_available = 'True';
     }
