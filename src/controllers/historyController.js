@@ -3,6 +3,10 @@ const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
 const { syncRunState, runPipeline } = require('../pipeline');
 const { createAuthedClient } = require('../lib/authtedClient');
+const { isClaimsIngestRunning } = require('../jobs/claimsIngest');
+
+// Steps that open the VPN and MySQL connection when restarted on their own
+const DB_STEPS = ['enrich_shorts', 'export_views'];
 
 
 // Get pipeline run history
@@ -66,6 +70,10 @@ async function retryRun(req, res) {
       return res.status(400).json({
         error: 'Can only retry failed or timed out runs'
       });
+    }
+
+    if (await isClaimsIngestRunning()) {
+      return res.status(409).json({ error: 'Daily claims ingest is running' });
     }
 
     // Reset the run state
@@ -205,6 +213,10 @@ async function restartStep(req, res) {
       return res.status(400).json({
         error: `Cannot restart step with status '${step.status}'`
       });
+    }
+
+    if (DB_STEPS.includes(stepName) && await isClaimsIngestRunning()) {
+      return res.status(409).json({ error: 'Daily claims ingest is running' });
     }
 
     // Import step runner

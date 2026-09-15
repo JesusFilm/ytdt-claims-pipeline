@@ -584,6 +584,10 @@ async function runSingleStep(runId, stepName, run) {
       context.outputs.exports = {
         export_unprocessed_claims: {
           path: path.join(exportDir, 'unprocessed_claims.csv')
+        },
+        // Retraining history for YT-Validator, which ignores a missing file
+        export_all_claims: {
+          path: path.join(exportDir, 'all_claims.csv')
         }
       };
     }

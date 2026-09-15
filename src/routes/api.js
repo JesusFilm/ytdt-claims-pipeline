@@ -4,6 +4,7 @@ const historyController = require('../controllers/historyController');
 const exportsController = require('../controllers/exportsController');
 const statusController = require('../controllers/statusController');
 const pendingRunController = require('../controllers/pendingRunController');
+const claimsIngestController = require('../controllers/claimsIngestController');
 
 
 function createApiRoutes(pipelineStatus) {
@@ -30,6 +31,7 @@ function createApiRoutes(pipelineStatus) {
 
   // Status routes
   router.get('/status', statusController.getStatus(pipelineStatus));
+  router.get('/claims-ingest/status', claimsIngestController.getClaimsIngestStatus);
 
   return router;
 }

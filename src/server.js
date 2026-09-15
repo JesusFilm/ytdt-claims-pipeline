@@ -4,6 +4,7 @@ const cors = require('cors');
 
 const { runPipeline, getPipelineStepNames } = require('./pipeline');
 const { connectToDatabase, closeConnection } = require('./database');
+const { isClaimsIngestRunning, startClaimsIngestScheduler } = require('./jobs/claimsIngest');
 
 const upload = require('./middleware/upload');
 const { authenticateRequest } = require('./middleware/auth');
@@ -57,6 +58,14 @@ app.post('/api/run', authenticateRequest,
       return res.status(409).json({
         error: 'Pipeline already running',
         status: pipelineStatus.status
+      });
+    }
+
+    // The daily claims ingest holds the VPN and MySQL connection too
+    if (await isClaimsIngestRunning()) {
+      return res.status(409).json({
+        error: 'Daily claims ingest is running',
+        status: 'claims_ingest'
       });
     }
 
@@ -163,6 +172,8 @@ async function startServer() {
   } else {
     console.log('ML service disabled: ML_API_ENDPOINT not set');
   }
+
+  startClaimsIngestScheduler();
 
   app.listen(PORT, () => {
     console.log(`API running on port ${PORT}`);
