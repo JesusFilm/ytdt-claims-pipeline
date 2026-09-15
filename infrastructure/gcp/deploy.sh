@@ -35,7 +35,7 @@ export MODEL_VERSION=${MODEL_VERSION:-"v1"}
 export MODEL_NAME=${MODEL_NAME:-"ag_challenger_deploy"}
 
 # SSL Certificate Email
-export SSL_EMAIL=${SSL_EMAIL:-"me@ceduth.dev"}
+export SSL_EMAIL=${SSL_EMAIL:-"edouard.carvalho@p2c.com"}
 export LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-""}
 
 # Load environment variables from .env.production
