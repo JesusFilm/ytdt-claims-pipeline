@@ -186,4 +186,20 @@ async function notifyClaimsStaged(claims, stagedBy) {
   }
 }
 
-module.exports = { sendPipelineNotification, notifyClaimsStaged };
+// The daily claims ingest can't recover from a rejected sign-in on its own
+async function notifyClaimsIngestAuthRequired(error) {
+  if (!process.env.SLACK_BOT_TOKEN) return;
+  const channel = process.env.SLACK_CHANNEL || '#ytdt-pipeline';
+
+  const text = `🔑 *Daily claims ingest needs re-authorization*\n${error}\n` +
+    'Claims stop loading from the YouTube Reporting API until someone signs in again ' +
+    '(see docs/claims-reporting-api.md).';
+
+  await axios.post(
+    'https://slack.com/api/chat.postMessage',
+    { channel, text },
+    { headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`, 'Content-Type': 'application/json' } }
+  );
+}
+
+module.exports = { sendPipelineNotification, notifyClaimsStaged, notifyClaimsIngestAuthRequired };

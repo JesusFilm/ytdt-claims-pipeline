@@ -8,14 +8,17 @@ const enrichUnprocessedClaims = require('../lib/enrichUnprocessedClaims');
 async function exportViews(context) {
 
   const mysql = context.connections.mysql;
-  const exportDir = path.join(process.cwd(), 'data', 'exports', generateRunFolderName(context.startTime));
+  const options = context.options || {};
+  const exportDir = options.exportDir || path.join(process.cwd(), 'data', 'exports', generateRunFolderName(context.startTime));
   await fs.mkdir(exportDir, { recursive: true });
 
+  // options.exportViews narrows the export, e.g. the daily claims ingest only
+  // needs unprocessed claims. Absent means every view, as pipeline runs expect.
   const views = [
     { name: 'export_all_claims', file: 'all_claims.csv' },
     { name: 'export_owned_videos', file: 'owned_videos.csv' },
     { name: 'export_unprocessed_claims', file: 'unprocessed_claims.csv' }
-  ];
+  ].filter(view => !options.exportViews || options.exportViews.includes(view.name));
 
   context.outputs.exports = {};
 
@@ -39,9 +42,11 @@ async function exportViews(context) {
       return plain;
     });
 
-    // not-available / licensed / media-component enrichment (traditionally by YT-Validator) 
+    // not-available / licensed / media-component enrichment (traditionally by YT-Validator)
     // so these columns are present in the exported unprocessed claims CSV.
-    if (view.name === 'export_unprocessed_claims' ) {
+    // options.enrichUnprocessed === false skips it: the availability lookup
+    // spends YouTube Data API quota shared with production.
+    if (view.name === 'export_unprocessed_claims' && options.enrichUnprocessed !== false) {
       await enrichUnprocessedClaims(plainRows);
     }
 

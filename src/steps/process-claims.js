@@ -15,12 +15,8 @@ async function processClaims(context, claimsSource) {
   // Create temp table
   await mysql.query(`CREATE TABLE IF NOT EXISTS ${tableName} LIKE youtube_mcn_claims`);
 
-  // Parse and insert claims
-  const rows = await parseCSV(claims);
-  const filtered = rows.filter(row =>
-    row.asset_labels?.includes('Jesus Film') ||
-    (row.claim_origin === 'WEB_UPLOAD_BY_OWNER' && row.channel_id === 'UCCtcQHR6-mQHQh6G06IPlDA')
-  );
+  // Parse and insert claims, filtering while streaming: reports run to ~1.5M rows
+  const filtered = await parseCSV(claims, isJesusFilmClaim);
 
   filtered.forEach(row => { row.claim_report_source = claimsSource });
 
@@ -80,12 +76,20 @@ async function processClaims(context, claimsSource) {
   };
 }
 
-function parseCSV(filePath) {
+function isJesusFilmClaim(row) {
+  return row.asset_labels?.includes('Jesus Film') ||
+    (row.claim_origin === 'WEB_UPLOAD_BY_OWNER' && row.channel_id === 'UCCtcQHR6-mQHQh6G06IPlDA');
+}
+
+function parseCSV(filePath, keep) {
   return new Promise((resolve, reject) => {
     const rows = [];
     fs.createReadStream(filePath)
       .pipe(csv.parse({ columns: true, skip_empty_lines: true }))
-      .on('data', (row) => { rows.push(cleanRow(row)) })
+      .on('data', (row) => {
+        const cleaned = cleanRow(row);
+        if (keep(cleaned)) rows.push(cleaned);
+      })
       .on('end', () => resolve(rows))
       .on('error', reject);
   });
