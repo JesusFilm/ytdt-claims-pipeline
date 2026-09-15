@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { formatDuration } = require('./utils');
+const { formatDuration, formatTimestamp } = require('./utils');
 
 // Trailing options object rather than a tenth positional argument.
 //   options.steps - the run's step filter, when it ran only a subset
@@ -16,7 +16,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     status === 'failed' ? 'Failed' : 'Completed';
 
   const durationText = formatDuration(duration);
-  const startTimeText = startTime ? new Date(startTime).toLocaleString() : 'Unknown';
+  const startTimeText = formatTimestamp(startTime);
   const driveFolderUrl = results?.driveFolderUrl;
   const frontendUrl = process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/?run=${runId}` : null;
 
