@@ -32,8 +32,8 @@ jobs:
 
       - name: Mirror repository over SSH
         run: |
-          git config --global user.name "EC"
-          git config --global user.email "me@ceduth.dev"
+          git config --global user.name "Ed C."
+          git config --global user.email "edouard.carvalho@p2c.com"
 
           git remote add mirror git@github.com:ceduth-jfp/ytdt-claims-pipeline.git
           git push mirror --mirror
