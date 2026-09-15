@@ -210,3 +210,7 @@ Guided upload:
 ### [Pending Runs — Claims & Verdicts Split](./docs/pending-runs.md)
 
 Claims (~1GB) are staged via the UI by Data Engineering. Ben uploads verdicts via Slack. The pipeline fires once both are present.
+
+### [Daily Claims Ingest — YouTube Reporting API](./docs/claims-reporting-api.md)
+
+Claims reports load daily from the YouTube Reporting API into `youtube_mcn_claims`, then refresh YT-Validator's ASR queue.

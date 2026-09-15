@@ -6,6 +6,7 @@ const { getDatabase } = require('../database');
 const { runPipeline, getCurrentPipelineStatus } = require('../pipeline');
 const { STEPS, getSession, createSession, updateSession, deleteSession, currentStep, stepCount } = require('../lib/slackSession');
 const { getPendingRun, clearPendingRun } = require('../lib/pendingRun');
+const { isClaimsIngestRunning } = require('../jobs/claimsIngest');
 
 
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
@@ -240,6 +241,10 @@ async function handleInteraction(req, res) {
       const db = getDatabase();
       const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
       if (!run) return;
+      if (await isClaimsIngestRunning()) {
+        await slackPost(channel, [], '⚠️ The daily claims ingest is running. Try again once it completes.');
+        return;
+      }
       // Preserve the original step filter (see historyController.retryRun)
       runPipeline(run.files, run.options || {}, runId).catch(err => console.error('Pipeline rerun failed:', err));
     } catch (err) {
@@ -293,6 +298,10 @@ async function handleInteraction(req, res) {
     const current = await getCurrentPipelineStatus();
     if (current.running) {
       await slackPost(channel, [], '⚠️ A pipeline is already running. Try again once it completes.');
+      return;
+    }
+    if (await isClaimsIngestRunning()) {
+      await slackPost(channel, [], '⚠️ The daily claims ingest is running. Try again once it completes.');
       return;
     }
 

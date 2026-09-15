@@ -1,6 +1,7 @@
 const axios = require('axios');
 const FormData = require("form-data");
 const fs = require('fs');
+const path = require('path');
 const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
 const { createAuthedClient } = require('../lib/authtedClient');
@@ -29,6 +30,16 @@ async function enrichML(context) {
     formData.append('webhook_url', `${process.env.BASE_URL}/api/ml-webhook`);
     formData.append('pipeline_run_id', context.runId);  // TODO: make required ?
     formData.append('skip_validation', String(true));
+
+    // Language-model retraining inputs. Either may be absent; YT-Validator then
+    // keeps its previous model and still returns verdicts.
+    const allClaimsPath = context.outputs.exports?.export_all_claims?.path;
+    if (allClaimsPath) {
+      formData.append('language_history', path.resolve(allClaimsPath));
+    }
+    for (const verdictsPath of [context.files?.mcnVerdicts, context.files?.jfmVerdicts]) {
+      if (verdictsPath) formData.append('language_eval_labels', path.resolve(verdictsPath));
+    }
 
     // Configure axios with 30s timeout and retry logic
     const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT);
