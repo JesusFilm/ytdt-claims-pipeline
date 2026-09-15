@@ -148,7 +148,7 @@ To ship a new model, publish a version to GCS and refetch; no redeploy needed.
 - Deploy certificate manually, eg. 
 ```shell
 sudo rm -rf /etc/letsencrypt/accounts
-sudo certbot --nginx -d 35.227.61.101.nip.io --non-interactive --agree-tos --email me@ceduth.dev --redirect
+sudo certbot --nginx -d 35.227.61.101.nip.io --non-interactive --agree-tos --email edouard.carvalho@p2c.com --redirect
 ```
 
 ### Check systemd service issues
