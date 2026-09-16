@@ -56,20 +56,30 @@ The console's Collection tab (ytdt-claims-console) shows four steps. They are ea
 | Published | YouTube generated the report and made it downloadable | `reports.<source>.createTime` |
 | Ingested | Downloaded, filtered to Jesus Film claims, new rows merged into MySQL | ingest record `endedAt` |
 | Queued | Unprocessed claims exported and posted to `/asr/queue` | `results.asrQueue.rows` |
-| Captions | YT-Validator's collector drains that queue, caching captions | `collector.*` (its 08:15 UTC run) |
+| Audio language | YT-Validator's collector records the language YouTube's speech recognition heard | `collector.*` (its 08:15 UTC run) |
 
 "Latest snapshot" is **not** Published: the snapshot date (`startTime`) is the day the data covers,
 and publishing lags it ~62h. Showing both is what makes that lag visible.
 
-**Captions is where a report's lifecycle ends.** The collector gathers evidence only — 180 videos a
-day, bounded by quota; nothing is decided and no column is written for Ben. Verdicts and languages
-are a *separate monthly lifecycle*, driven by Ben's verdict sheets through one `/predict` call:
-the verdict model produces rating, predicted_verdict, confidence and triage (AUTO_Y, REVIEW, AUTO_N,
-AUTO_N_LICENSED, AUTO_N_UNAVAILABLE, AUTO_N_CHANNEL), then the language cascade produces
-predicted_language_id/name, language_source (CHANNEL, TITLE, ASR, FASTTEXT, LID, REVIEW) and
-language_confidence. The cached captions are an *input* to that cascade, not scoring themselves.
+**Audio language is where a report's lifecycle ends.** Despite the internal name "ASR queue", no
+caption is fetched and nothing is transcribed. The collector calls `captions.list(part=snippet)`,
+which returns track *metadata*, keeps only tracks with `trackKind == "asr"` (YouTube's own
+machine-generated ones, ignoring human tracks), and stores one BCP-47 code per video, e.g. `ru`.
+180 videos a day, bounded by quota. Nothing is decided and no column is written for Ben.
 
-So a per-report timeline stops at Captions. Showing verdict/language scoring there would sit pending
+A video with no usable auto-caption track is stored as `""` — which covers three different causes:
+no ASR track at all, captions present but forbidden (403), or the video gone (404). Don't render
+that as "no captions"; it means "no usable audio language". A `""` is a real answer and is cached,
+so the video is never paid for twice.
+
+Verdicts and languages are a *separate monthly lifecycle*, driven by Ben's verdict sheets through
+one `/predict` call: the verdict model produces rating, predicted_verdict, confidence and triage
+(AUTO_Y, REVIEW, AUTO_N, AUTO_N_LICENSED, AUTO_N_UNAVAILABLE, AUTO_N_CHANNEL), then the language
+cascade produces predicted_language_id/name, language_source (CHANNEL, TITLE, ASR, FASTTEXT, LID,
+REVIEW) and language_confidence. The daily evidence is an *input* to that cascade; the ISO→WESS
+mapping and language certification happen there, never in the daily run.
+
+So a per-report timeline stops at audio language. Showing verdict/language scoring there would sit pending
 for weeks, because it does not happen per report.
 
 `collector` in `GET /api/claims-ingest/status` proxies YT-Validator's `/asr/status`, which the browser
