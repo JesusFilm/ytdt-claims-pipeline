@@ -4,13 +4,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
   workflow_dispatch:
 
 jobs:
@@ -35,5 +28,23 @@ jobs:
           git config --global user.name "Ed C."
           git config --global user.email "edouard.carvalho@p2c.com"
 
-          git remote add mirror git@github.com:ceduth-jfp/ytdt-claims-pipeline.git
-          git push mirror --mirror
+          git remote add mirror git@github.com:ceduth/ytdt-claims-pipeline.git
+
+          # This repo was transferred from ceduth-jfp to JesusFilm, and GitHub
+          # keeps the old path as a permanent redirect for git too. Aimed there,
+          # a mirror push targets THIS repo: same repository id. Refuse any URL
+          # naming the source or its legacy path rather than trust the constant.
+          url=$(git ls-remote --get-url mirror)
+          echo "mirror remote: $url"
+          case "$url" in
+            *esus*ilm*|*ceduth-jfp*)
+              echo "Refusing to push: mirror URL names the source repository."
+              exit 1
+              ;;
+          esac
+
+          # Explicit refspec rather than --mirror. actions/checkout leaves the
+          # workspace with remote-tracking refs, not local branches, so --mirror
+          # would publish refs/remotes/* and delete the mirror's real branches.
+          # --prune still drops branches deleted upstream, keeping it a true copy.
+          git push --prune mirror "+refs/remotes/origin/*:refs/heads/*"

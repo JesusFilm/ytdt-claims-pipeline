@@ -1,6 +1,7 @@
 const { format } = require('date-fns');
 const { parse } = require('csv-parse/sync');
 const fs = require('fs');
+const path = require('path');
 
 
 module.exports.cleanRow = function (row) {
@@ -25,8 +26,30 @@ module.exports.formatDuration = (ms) => {
 };
 
 
-module.exports.generateRunFolderName = (startTime) => 
+// Human-readable label for the run's Drive folder, e.g. "Sep 16 2026 01:53:36 AM".
+module.exports.generateRunFolderName = (startTime) =>
   format(startTime, process.env.EXPORT_FOLDER_NAME_FORMAT || 'yyyyMMddHHmmss');
+
+
+// Name of the run's directory on disk. Deliberately NOT the Drive label:
+// EXPORT_FOLDER_NAME_FORMAT is free-form and in production yields spaces and
+// colons ("Sep 16 2026 01:53:36 AM"). Colons make scp/rsync/gcloud read the
+// path as host:path, spaces need quoting in every shell, and both are illegal
+// on Windows. This name also sorts chronologically, which the label does not.
+module.exports.runDirName = (startTime) => format(startTime, 'yyyyMMddHHmmss');
+
+
+// Where a run's exports live. Prefers the safe name, but falls back to the
+// legacy Drive-label directory for runs exported before the split, so their
+// files stay downloadable. Returns the safe path when neither exists (creation).
+module.exports.resolveRunExportDir = (startTime, baseDir) => {
+  const base = baseDir || path.join(process.cwd(), 'data', 'exports');
+  const safe = path.join(base, module.exports.runDirName(startTime));
+  if (fs.existsSync(safe)) return safe;
+
+  const legacy = path.join(base, module.exports.generateRunFolderName(startTime));
+  return fs.existsSync(legacy) ? legacy : safe;
+};
 
 
 module.exports.readFile = async function (filePath, n = 2) {
