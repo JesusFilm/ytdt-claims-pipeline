@@ -1,6 +1,9 @@
 const path = require('path');
 const { generateRunFolderName } = require('../lib/utils');
 const { getRunFolderId, uploadFileWithFallback } = require('../lib/driveUpload');
+const { raiseAlert, clearAlert } = require('../lib/serviceAlerts');
+
+const DRIVE_ALERT = 'drive-upload';
 
 
 async function uploadDrive(context) {
@@ -28,11 +31,17 @@ async function uploadDrive(context) {
     context.outputs.driveUploads = uploadedFiles;
     context.outputs.driveFolderUrl = folderUrl;
     console.log(`Uploaded ${uploadedFiles.length} files to: ${folderUrl}`);
+    await clearAlert(DRIVE_ALERT);
 
   } catch (error) {
     console.error('Drive upload failed:', error.message);
     console.debug(error);
-    // Don't fail pipeline for upload errors
+    // The run still completes — exports exist locally and the pipeline's work
+    // is done — but nobody gets the files, which is silent unless we say so.
+    await raiseAlert(DRIVE_ALERT,
+      `:file_folder: *Drive upload failed*\n${error.message}\n` +
+      `Exports are on the VM under data/exports, but they are not reaching ` +
+      `${process.env.GOOGLE_DRIVE_NAME || 'the shared drive'}. Runs will keep completing without them.`);
   }
 }
 
