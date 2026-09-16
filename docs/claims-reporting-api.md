@@ -56,13 +56,34 @@ The console's Collection tab (ytdt-claims-console) shows four steps. They are ea
 | Published | YouTube generated the report and made it downloadable | `reports.<source>.createTime` |
 | Ingested | Downloaded, filtered to Jesus Film claims, new rows merged into MySQL | ingest record `endedAt` |
 | Queued | Unprocessed claims exported and posted to `/asr/queue` | `results.asrQueue.rows` |
-| Scoring | YT-Validator's collector pulls captions and scores them | its collector (08:15 UTC) |
+| Captions | YT-Validator's collector drains that queue, caching captions | `collector.*` (its 08:15 UTC run) |
 
 "Latest snapshot" is **not** Published: the snapshot date (`startTime`) is the day the data covers,
 and publishing lags it ~62h. Showing both is what makes that lag visible.
 
-Scoring currently always renders as pending — the console has no signal from the collector. Either
-YT-Validator exposes queue-drain state, or the step should be dropped rather than shown permanently grey.
+**Captions is where a report's lifecycle ends.** The collector gathers evidence only — 180 videos a
+day, bounded by quota; nothing is decided and no column is written for Ben. Verdicts and languages
+are a *separate monthly lifecycle*, driven by Ben's verdict sheets through one `/predict` call:
+the verdict model produces rating, predicted_verdict, confidence and triage (AUTO_Y, REVIEW, AUTO_N,
+AUTO_N_LICENSED, AUTO_N_UNAVAILABLE, AUTO_N_CHANNEL), then the language cascade produces
+predicted_language_id/name, language_source (CHANNEL, TITLE, ASR, FASTTEXT, LID, REVIEW) and
+language_confidence. The cached captions are an *input* to that cascade, not scoring themselves.
+
+So a per-report timeline stops at Captions. Showing verdict/language scoring there would sit pending
+for weeks, because it does not happen per report.
+
+`collector` in `GET /api/claims-ingest/status` proxies YT-Validator's `/asr/status`, which the browser
+cannot reach on localhost:3001. Cached 30s, 2s timeout, no retry — ingest status must answer even when
+that service is restarting. It is `null` when YT-Validator predates the endpoint (404), is restarting
+or is down; the console reads absent as "not started", not an error. `collectorFetchedAt` says when
+*we* fetched it, which with a cache in between is a different question from `collector.last_run`.
+
+Its blocks (`queue`, `cache`, `collector`, `languages`, `version`) are empty objects before the first
+run, not nulls. `collector.remaining` is as of the last run, not live — recomputing it per request
+would mean re-applying the model's rules over the whole queue. `collector.stopped_reason` is `null`
+normally, `quota` when the daily key ran out mid-run, `outage` after repeated failures; either way the
+run ended early. `queue.has_licensed` says whether the current queue came from an export carrying the
+`licensed` column.
 
 ## Where BigQuery fits
 
