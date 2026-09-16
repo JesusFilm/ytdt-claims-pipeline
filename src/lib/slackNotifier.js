@@ -191,15 +191,20 @@ async function notifyClaimsIngestAuthRequired(error) {
   if (!process.env.SLACK_BOT_TOKEN) return;
   const channel = process.env.SLACK_CHANNEL || '#ytdt-pipeline';
 
+  // `error` already carries the doc link; the summary is what to expect, so
+  // nobody tries the script on the VM, where it cannot open a browser.
   const text = `🔑 *Daily claims ingest needs re-authorization*\n${error}\n` +
-    'Claims stop loading from the YouTube Reporting API until someone signs in again ' +
-    '(see docs/claims-reporting-api.md).';
+    'Claims stop loading from the YouTube Reporting API until someone signs in again. ' +
+    'About 5 minutes: sign in as media@jesusfilm.org from a laptop, pipe the token to the VM, ' +
+    'and the next run picks it up with no restart.';
 
-  await axios.post(
+  const { data } = await axios.post(
     'https://slack.com/api/chat.postMessage',
     { channel, text },
     { headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`, 'Content-Type': 'application/json' } }
   );
+  // 200 with ok:false (channel_not_found etc.) is a failed alert, not a sent one
+  if (!data.ok) throw new Error(`Slack rejected the alert: ${data.error}`);
 }
 
 module.exports = { sendPipelineNotification, notifyClaimsStaged, notifyClaimsIngestAuthRequired };

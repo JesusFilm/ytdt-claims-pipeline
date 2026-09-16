@@ -16,6 +16,9 @@ const ASSETS_MEDIA_CSV = process.env.ASSETS_MEDIA_CSV || path.join(process.cwd()
 // unavailable against a 12% baseline.
 const normalizeVideoId = (value) => String(value).trim().replace(/^'+/, '');
 
+// MySQL hands back NULL as null; CSV-sourced rows carry ''.
+const isBlank = (value) => value === undefined || value === null || String(value).trim() === '';
+
 const OUTAGE_GIVE_UP = 3; // consecutive single-id failures meaning "API is down"
 
 // Ask YouTube which of these ids exist. null means the call kept failing.
@@ -86,7 +89,7 @@ async function checkVideosAvailableBatch(videoIds, retries = 2) {
  * Mutates `rows` (array of plain string-keyed objects from the export_unprocessed_claims view),
  * adding the three columns that YT-Validator/pipeline.py used to add:
  *   - licensed            (True/False)
- *   - media_component_id  (mapped value or '')
+ *   - media_component_id  (the view's own value; when blank, mapped from the CSV, else '')
  *   - video_available     (True/False; default True when no video_id)
  *
  * options.skipAvailability omits video_available and makes no YouTube Data API
@@ -119,8 +122,16 @@ async function enrichUnprocessedClaims(rows, { skipAvailability = false } = {}) 
   for (const row of rows) {
     const assetId = String(row.asset_id);
     row.licensed = licensedAssetIds.has(assetId) ? 'True' : 'False';
-    const mc = assetToMediaComponent.get(assetId);
-    row.media_component_id = mc === undefined || mc === null ? '' : String(mc);
+    // Fill a blank, never overwrite. The view already carries the claim's
+    // media_component_id from youtube_mcn_claims, and the CSV covers only the
+    // ~735 assets with a single media component. Assigning the lookup
+    // unconditionally (as pipeline.py's df['asset_id'].map() did) blanked
+    // whatever the view had on every row whose asset is not in that CSV: in the
+    // Aug 31 export that was 2,230 of 2,377 rows, all written out blank.
+    if (isBlank(row.media_component_id)) {
+      const mc = assetToMediaComponent.get(assetId);
+      row.media_component_id = isBlank(mc) ? '' : String(mc);
+    }
 
     if (skipAvailability) {
       continue;
