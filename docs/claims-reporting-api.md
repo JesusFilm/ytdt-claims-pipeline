@@ -165,8 +165,58 @@ downloading reports, as **re-authorization required**:
 - one Slack message goes to `SLACK_CHANNEL` when this starts (not on every daily retry), if `SLACK_BOT_TOKEN` is set;
 - `GET /api/claims-ingest/status` returns `authRequired: true` until an attempt succeeds.
 
-To fix, run the sign-in script above on the VM, writing over `YT_REPORTING_TOKEN_FILE`, then
-`node scripts/ingest-claims-report.js` or wait for the next scheduled run.
+#### Re-authorizing (about 5 minutes)
+
+Do this from a **laptop**, not the VM. The script listens on `127.0.0.1` for Google's redirect, so it must run
+where the browser is — on the VM the sign-in completes in your browser and the VM never hears back.
+
+You need: a checkout of this repo with `yarn install` done, the Desktop OAuth client JSON from
+`jfp-data-warehouse` used for the first sign-in (keep it somewhere safe), a Chrome profile signed in as
+media@jesusfilm.org, and `gcloud` access to the VM.
+
+1. Sign in and write a fresh token locally. Open the printed URL in the media@ profile and approve:
+
+   ```bash
+   YT_REPORTING_LOGIN_HINT=media@jesusfilm.org \
+     node scripts/youtube-reporting-auth.js youtube-reporting-client.json youtube-reporting-token.json
+   ```
+
+2. Pipe it into place on the VM. Piping, rather than `gcloud compute scp` via `/tmp`, means the token never
+   sits readable by other users; it lands root-owned, mode 0600:
+
+   ```bash
+   gcloud compute ssh ytdt-claims --zone us-east1-b \
+     --command "sudo sh -c 'umask 077; cat > /opt/ytdt-claims-pipeline/config/youtube-reporting-token.json'" \
+     < youtube-reporting-token.json
+   ```
+
+3. Delete the local copy — it is a long-lived credential for the content owner:
+
+   ```bash
+   rm youtube-reporting-token.json
+   ```
+
+The token is read on every run, so no restart is needed. The next scheduled run (06:00 UTC) succeeds and clears
+`authRequired`; to collect sooner, run `node scripts/ingest-claims-report.js` on the VM.
+
+Signing in again pushes out the oldest token for this account and client once there are 100, so avoid repeated
+sign-ins "to be safe".
+
+#### Planned: reconnect from the console
+
+Not built; recorded here because issues are disabled on this repo. Worth it only if re-authorization turns out to
+be more than rare. A "Reconnect YouTube" button beside the console's *Sign-in expired* banner:
+
+- **Client:** a Web OAuth client with a redirect URI on this API. Desktop clients cannot redirect to a server.
+  Confirm `yt-analytics.readonly` is already approved on that client's consent screen, or it needs another
+  verification round.
+- **Start:** only from a signed-in console session, with `login_hint=media@jesusfilm.org`, `prompt=consent`,
+  `access_type=offline`, and a single-use `state` bound to that session so the callback cannot be forged or replayed.
+- **Before saving:** require the Google account to be media@jesusfilm.org, and make one Reporting API call on
+  behalf of each content owner. A sign-in with the wrong account must not overwrite a working token.
+- **Finish:** write the token file atomically (0600), clear the alert, and offer "Run ingest now".
+
+Roughly a day, pipeline and console together.
 
 ## Running and monitoring
 

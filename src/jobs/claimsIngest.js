@@ -31,6 +31,10 @@ const exportViews = require('../steps/export-views');
 const COLLECTION = 'claims_report_ingestions';
 const DOWNLOAD_DIR = process.env.CLAIMS_REPORT_DIR || path.join(process.cwd(), 'data', 'claims-reports');
 const STALE_AFTER_MS = (parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60) * 60 * 1000;
+// Linked from the recorded error and the Slack alert, so whoever is paged lands
+// on the steps rather than having to find the repo first.
+const REAUTH_DOC_URL = 'https://github.com/JesusFilm/ytdt-claims-pipeline/blob/main/docs/' +
+  'claims-reporting-api.md#when-google-asks-for-sign-in-again';
 
 let running = false;
 
@@ -222,8 +226,11 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
     record.error = error.message;
     if (stage === 'reporting' && isAuthError(error)) {
       record.authRequired = true;
-      record.error = `YouTube rejected the stored sign-in (${error.message}). Re-authorize: ` +
-        'node scripts/youtube-reporting-auth.js <desktop-client.json> "$YT_REPORTING_TOKEN_FILE"';
+      // Say where, not just what: the sign-in script only works on a machine
+      // with a browser, so running it on the VM as this used to suggest fails.
+      record.error = `YouTube rejected the stored sign-in (${error.message}). Re-authorize from a ` +
+        'laptop, not the VM: run scripts/youtube-reporting-auth.js, then pipe the token to the VM. ' +
+        `Steps: ${REAUTH_DOC_URL}`;
     }
     console.error('claims ingest failed:', error);
     return record;
