@@ -183,6 +183,13 @@ asrQueue response), `error` and `authRequired`.
 `GET /api/claims-ingest/status` (authenticated) returns `enabled`, `authRequired`, `lastCompleted` and the 10 most
 recent attempts.
 
+`GET /api/runs/history` returns ingests alongside pipeline runs, since the ingest is now what brings claims in and
+history without it is incomplete. `runs` carry `kind: "pipeline"` and a `mode` — `full`, `scoring` (a steps-filtered
+run that imported nothing) or `partial` — and `ingests` carry `kind: "ingest"` with report ids, counts and the
+`/asr/queue` response, but never the signed `downloadUrl`. `?limit` (default 20, max 100), `?before=<ISO>` pages back
+through both collections on one cursor, and `?kind=pipeline|ingest` narrows. `stats.medianDuration` is split by mode,
+because a scoring run takes minutes and a full run tens of minutes.
+
 While an ingest is running, `POST /api/run`, Slack runs and retries return "claims ingest running".
 
 ## Monthly `/predict` retraining fields
