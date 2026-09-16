@@ -84,8 +84,12 @@ module.exports.mapWithConcurrency = async (items, concurrency, fn, delayMs = 500
 }
 
 
-module.exports.readCsv = (file) => fs.existsSync(file) ? 
-  parse(fs.readFileSync(file), { columns: true, skip_empty_lines: true }) : null;
+// bom: true because data/Licensed.csv is saved with a UTF-8 BOM, which without
+// this makes the first column parse as "﻿asset_id". Every r.asset_id then
+// reads undefined, so the licensed set came out empty and every claim was
+// flagged licensed=False — silently, for as long as the file has had the BOM.
+module.exports.readCsv = (file) => fs.existsSync(file) ?
+  parse(fs.readFileSync(file), { columns: true, skip_empty_lines: true, bom: true }) : null;
 
 
 /**
