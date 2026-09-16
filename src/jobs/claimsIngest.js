@@ -5,7 +5,7 @@ const FormData = require('form-data');
 const { getDatabase } = require('../database');
 const { getCurrentPipelineStatus } = require('../pipeline');
 const { createAuthedClient } = require('../lib/authtedClient');
-const { generateRunFolderName } = require('../lib/utils');
+const { runDirName } = require('../lib/utils');
 const youtubeReporting = require('../lib/youtubeReporting');
 
 const { notifyClaimsIngestAuthRequired } = require('../lib/slackNotifier');
@@ -200,8 +200,12 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
 
     context.options = {
       exportViews: ['export_unprocessed_claims'],
-      enrichUnprocessed: false,
-      exportDir: path.join(process.cwd(), 'data', 'exports', 'claims-ingest', generateRunFolderName(context.startTime))
+      // licensed and media_component_id are joins against local CSVs and cost
+      // nothing; only video_available would spend Data API quota shared with
+      // production. YT-Validator defers licensed claims to the end of the ASR
+      // queue (~18% of lookups), so the column pays for itself.
+      skipAvailability: true,
+      exportDir: path.join(process.cwd(), 'data', 'exports', 'claims-ingest', runDirName(context.startTime))
     };
     await exportViews(context);
 

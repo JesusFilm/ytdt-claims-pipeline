@@ -83,13 +83,19 @@ async function checkVideosAvailableBatch(videoIds, retries = 2) {
 }
 
 /**
- * Mutates `rows` (array of plain string-keyed objects from the export_unprocessed_claims view), 
+ * Mutates `rows` (array of plain string-keyed objects from the export_unprocessed_claims view),
  * adding the three columns that YT-Validator/pipeline.py used to add:
  *   - licensed            (True/False)
  *   - media_component_id  (mapped value or '')
  *   - video_available     (True/False; default True when no video_id)
+ *
+ * options.skipAvailability omits video_available and makes no YouTube Data API
+ * calls. The other two columns are joins against local CSVs and cost nothing,
+ * so the daily claims ingest takes them and leaves the quota alone. The column
+ * is omitted rather than blanked: a blank means "lookup failed, route to
+ * review", which is not what happened.
  */
-async function enrichUnprocessedClaims(rows) {
+async function enrichUnprocessedClaims(rows, { skipAvailability = false } = {}) {
   if (!rows.length) return rows;
 
   // licensed: df['asset_id'].isin(licensed_asset_ids)
@@ -108,13 +114,17 @@ async function enrichUnprocessedClaims(rows) {
   // video_available
   let availableMap = {};
   const hasVideoId = Object.prototype.hasOwnProperty.call(rows[0], 'video_id');
-  if (hasVideoId) { availableMap = await checkVideosAvailableBatch(rows.map(r => r.video_id)); }
+  if (hasVideoId && !skipAvailability) { availableMap = await checkVideosAvailableBatch(rows.map(r => r.video_id)); }
 
   for (const row of rows) {
     const assetId = String(row.asset_id);
     row.licensed = licensedAssetIds.has(assetId) ? 'True' : 'False';
     const mc = assetToMediaComponent.get(assetId);
     row.media_component_id = mc === undefined || mc === null ? '' : String(mc);
+
+    if (skipAvailability) {
+      continue;
+    }
 
     if (hasVideoId) {
       const available = availableMap[row.video_id];

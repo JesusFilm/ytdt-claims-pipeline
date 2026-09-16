@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const { ObjectId } = require('mongodb');
 const { getDatabase } = require('../database');
-const { generateRunFolderName } = require('../lib/utils');
+const { resolveRunExportDir } = require('../lib/utils');
 
 
 // Download uploaded files
@@ -55,9 +55,8 @@ async function downloadExport(req, res) {
     const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
     if (!run) { return res.status(404).json({ error: 'Run not found' }); }    
 
-    // Build folder name and file path
-    const folderName = generateRunFolderName(run.startTime);
-    const filePath = path.join(process.cwd(), 'data', 'exports', folderName, filename);
+    // Build file path (legacy-named run folders still resolve)
+    const filePath = path.join(resolveRunExportDir(run.startTime), filename);
 
     res.download(filePath, (err) => {
       if (err) {
@@ -91,9 +90,8 @@ async function listExports(req, res) {
     const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(runId) });
     if (!run) { return res.status(404).json({ error: 'Run not found' }); }
 
-    // Build folder name from run startTime
-    const folderName = generateRunFolderName(run.startTime);
-    const exportsDir = path.join(process.cwd(), 'data', 'exports', folderName);
+    // Build folder from run startTime (legacy-named run folders still resolve)
+    const exportsDir = resolveRunExportDir(run.startTime);
 
     const files = await fs.readdir(exportsDir);
     const csvFiles = files

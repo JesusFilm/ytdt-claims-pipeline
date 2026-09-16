@@ -568,8 +568,7 @@ async function runSingleStep(runId, stepName, run) {
 
   // Rebuild export paths for enrich_ml and upload_drive
   if (stepName === 'enrich_ml' || stepName === 'upload_drive') {
-    const folderName = generateRunFolderName(run.startTime);
-    const exportDir = path.join(process.cwd(), 'data', 'exports', folderName);
+    const exportDir = resolveRunExportDir(run.startTime);
 
     // Verify files exist
     const fs = require('fs').promises;
