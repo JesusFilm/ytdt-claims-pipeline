@@ -1,6 +1,33 @@
 const { getDatabase } = require('../database');
 const { COLLECTION } = require('../jobs/claimsIngest');
 const { createAuthedClient } = require('../lib/authtedClient');
+const { CLAIMS_OWNERS } = require('../lib/youtubeReporting');
+
+
+// Each owner's latest ingested snapshot, which is not the same as the latest
+// run: an ingest only fetches owners whose report is new, so on a day only
+// Matter 2 publishes, the latest run says nothing about Matter Entertainment.
+// Reading owners off that one run made them vanish from the console.
+async function ownerSnapshots(collection) {
+  return Promise.all(Object.keys(CLAIMS_OWNERS).map(async source => {
+    const run = await collection.findOne(
+      { status: 'completed', [`reports.${source}`]: { $exists: true } },
+      { sort: { startedAt: -1 } }
+    );
+    const report = run?.reports?.[source];
+    const counts = run?.results?.claimsProcessed?.[source];
+    return {
+      source,
+      // never ingested is an answer too: keep the owner, say so
+      snapshot: report?.startTime ? report.startTime.slice(0, 10) : null,
+      publishedAt: report?.createTime || null,
+      ingestedAt: run?.endedAt || null,
+      new: counts?.new ?? null,
+      total: counts?.total ?? null,
+      ingestId: run?._id ? run._id.toString() : null
+    };
+  }));
+}
 
 
 // YT-Validator's /asr/status lives on localhost:3001, which the browser cannot
@@ -37,9 +64,10 @@ async function fetchCollectorStatus() {
 async function getClaimsIngestStatus(req, res) {
   try {
     const collection = getDatabase().collection(COLLECTION);
-    const [recent, lastCompleted, collector] = await Promise.all([
+    const [recent, lastCompleted, owners, collector] = await Promise.all([
       collection.find({}).sort({ startedAt: -1 }).limit(10).toArray(),
       collection.findOne({ status: 'completed' }, { sort: { startedAt: -1 } }),
+      ownerSnapshots(collection),
       fetchCollectorStatus()
     ]);
     const lastAttempt = recent.find(r => !['skipped', 'running'].includes(r.status));
@@ -48,6 +76,7 @@ async function getClaimsIngestStatus(req, res) {
       enabled: ['true', '1'].includes(process.env.CLAIMS_INGEST_ENABLED),
       authRequired: !!lastAttempt?.authRequired,
       lastCompleted,
+      owners,
       recent,
       collector: collector.value,
       // when WE fetched it, distinct from collector.last_run (when it ran):
@@ -60,4 +89,4 @@ async function getClaimsIngestStatus(req, res) {
   }
 }
 
-module.exports = { getClaimsIngestStatus };
+module.exports = { getClaimsIngestStatus, ownerSnapshots };
