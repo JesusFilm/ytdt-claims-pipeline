@@ -1,7 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const { stringify } = require('csv-stringify/sync');
-const { generateRunFolderName } = require('../lib/utils');
+const { resolveRunExportDir } = require('../lib/utils');
 const enrichUnprocessedClaims = require('../lib/enrichUnprocessedClaims');
 
 
@@ -9,7 +9,7 @@ async function exportViews(context) {
 
   const mysql = context.connections.mysql;
   const options = context.options || {};
-  const exportDir = options.exportDir || path.join(process.cwd(), 'data', 'exports', generateRunFolderName(context.startTime));
+  const exportDir = options.exportDir || resolveRunExportDir(context.startTime);
   await fs.mkdir(exportDir, { recursive: true });
 
   // options.exportViews narrows the export, e.g. the daily claims ingest only
@@ -44,10 +44,11 @@ async function exportViews(context) {
 
     // not-available / licensed / media-component enrichment (traditionally by YT-Validator)
     // so these columns are present in the exported unprocessed claims CSV.
-    // options.enrichUnprocessed === false skips it: the availability lookup
-    // spends YouTube Data API quota shared with production.
+    // options.enrichUnprocessed === false skips all of it; options.skipAvailability
+    // keeps the free local-CSV joins (licensed, media_component_id) and skips only
+    // the availability lookup, which spends YouTube Data API quota shared with production.
     if (view.name === 'export_unprocessed_claims' && options.enrichUnprocessed !== false) {
-      await enrichUnprocessedClaims(plainRows);
+      await enrichUnprocessedClaims(plainRows, { skipAvailability: options.skipAvailability === true });
     }
 
     // Convert to CSV
