@@ -9,22 +9,86 @@ const { isClaimsIngestRunning } = require('../jobs/claimsIngest');
 const DB_STEPS = ['enrich_shorts', 'export_views'];
 
 
-// Get pipeline run history
+const HISTORY_LIMIT_DEFAULT = 20;
+const HISTORY_LIMIT_MAX = 100;
+
+// A run that carried a step filter did only part of the pipeline — most often
+// scoring the current unprocessed claims without importing anything. It looks
+// identical to a full run otherwise, so say which it was.
+function runMode(run) {
+  const steps = run.options?.steps;
+  if (!Array.isArray(steps) || !steps.length) return 'full';
+  return steps.includes('process_claims_matter_2') ||
+    steps.includes('process_claims_matter_entertainment')
+    ? 'partial'
+    : 'scoring';
+}
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid];
+}
+
+// The daily ingest is not a pipeline run and has no steps, but it is the thing
+// that now brings claims in, so history is incomplete without it.
+function formatIngest(doc) {
+  const started = doc.startedAt;
+  const ended = doc.endedAt;
+  return {
+    id: doc._id.toString(),
+    kind: 'ingest',
+    startTime: started,
+    endTime: ended || null,
+    status: doc.status,
+    trigger: doc.trigger || null,
+    duration: started && ended ? new Date(ended) - new Date(started) : undefined,
+    authRequired: !!doc.authRequired,
+    reason: doc.reason || null,
+    error: doc.error || null,
+    reports: Object.fromEntries(
+      Object.entries(doc.reports || {}).map(([source, report]) => [
+        source,
+        { reportId: report.reportId, startTime: report.startTime, createTime: report.createTime }
+      ])
+    ),
+    results: doc.results || {}
+  };
+}
+
+// Pipeline runs and daily claims ingests, newest first. `before` pages back
+// through both at once; `kind` narrows to one.
 async function getHistory(req, res) {
   try {
     const db = getDatabase();
-    const collection = db.collection('pipeline_runs');
 
-    // Get runs sorted by startTime descending, limit to 50
-    const runs = await collection
-      .find({})
+    const limit = Math.min(
+      parseInt(req.query.limit) || HISTORY_LIMIT_DEFAULT,
+      HISTORY_LIMIT_MAX
+    );
+    const kind = req.query.kind || 'all';
+    const before = req.query.before ? new Date(req.query.before) : null;
+    const cursor = before && !isNaN(before.getTime()) ? before : null;
+
+    const runs = kind === 'ingest' ? [] : await db.collection('pipeline_runs')
+      .find(cursor ? { startTime: { $lt: cursor } } : {})
       .sort({ startTime: -1 })
-      .limit(50)
+      .limit(limit)
       .toArray();
 
-    // Convert MongoDB _id to id and format for frontend
+    const ingests = kind === 'pipeline' ? [] : await db.collection('claims_report_ingestions')
+      .find(cursor ? { startedAt: { $lt: cursor } } : {})
+      .sort({ startedAt: -1 })
+      .limit(limit)
+      .toArray();
+
     const formattedRuns = runs.map(run => ({
       id: run._id.toString(),
+      kind: 'pipeline',
+      mode: runMode(run),
       startTime: run.startTime,
       status: run.status,
       duration: run.duration,
@@ -33,18 +97,42 @@ async function getHistory(req, res) {
       startedSteps: run.startedSteps || [],
       error: run.error,
     }));
+    const formattedIngests = ingests.map(formatIngest);
 
-    // Calculate stats
-    const total = runs.length;
-    const successful = runs.filter(r => r.status === 'completed').length;
-    const failed = runs.filter(r => r.status === 'failed').length;
-    const avgDuration = runs.length > 0
-      ? Math.round(runs.reduce((sum, run) => sum + (run.duration || 0), 0) / runs.length)
-      : 0;
+    // One cursor for two collections: page from the oldest item actually
+    // returned, so nothing between the two lists is skipped.
+    const times = [...formattedRuns, ...formattedIngests]
+      .map(item => item.startTime)
+      .filter(Boolean)
+      .map(t => new Date(t).getTime());
+    const nextBefore = times.length >= limit ? new Date(Math.min(...times)).toISOString() : null;
+
+    // Medians per mode: a scoring-only run takes minutes and a full run tens of
+    // minutes, so one median across both describes neither.
+    const durationsFor = mode => formattedRuns
+      .filter(r => r.status === 'completed' && r.duration && r.mode === mode)
+      .map(r => r.duration);
 
     res.json({
       runs: formattedRuns,
-      stats: { total, successful, failed, avgDuration }
+      ingests: formattedIngests,
+      nextBefore,
+      stats: {
+        total: formattedRuns.length,
+        successful: formattedRuns.filter(r => r.status === 'completed').length,
+        failed: formattedRuns.filter(r => r.status === 'failed').length,
+        ingests: {
+          total: formattedIngests.length,
+          completed: formattedIngests.filter(i => i.status === 'completed').length,
+          nothingNew: formattedIngests.filter(i => i.status === 'nothing_new').length,
+          failed: formattedIngests.filter(i => i.status === 'failed').length
+        },
+        medianDuration: {
+          full: median(durationsFor('full')),
+          scoring: median(durationsFor('scoring')),
+          partial: median(durationsFor('partial'))
+        }
+      }
     });
 
   } catch (error) {
