@@ -180,8 +180,13 @@ Every attempt is a document in MongoDB `claims_report_ingestions`:
 `reports.<source>` (reportId, startTime, createTime), `results` (claimsProcessed counts, enrichShorts,
 asrQueue response), `error` and `authRequired`.
 
-`GET /api/claims-ingest/status` (authenticated) returns `enabled`, `authRequired`, `lastCompleted` and the 10 most
-recent attempts.
+`GET /api/claims-ingest/status` (authenticated) returns `enabled`, `authRequired`, `lastCompleted`, `owners` and the
+10 most recent attempts.
+
+`owners` has one entry per content owner — `snapshot` (data date), `publishedAt`, `ingestedAt`, `new`, `total`,
+`ingestId` — taken from the newest completed ingest that included *that owner's* report. This is not the same as
+`lastCompleted`: an ingest only fetches owners with a new report, so on a day only Matter 2 publishes, the latest run
+carries no Matter Entertainment at all. An owner never ingested is still listed, with `snapshot: null`.
 
 `GET /api/runs/history` returns ingests alongside pipeline runs, since the ingest is now what brings claims in and
 history without it is incomplete. `runs` carry `kind: "pipeline"` and a `mode` — `full`, `scoring` (a steps-filtered
