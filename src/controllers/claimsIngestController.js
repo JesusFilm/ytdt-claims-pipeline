@@ -1,15 +1,46 @@
 const { getDatabase } = require('../database');
 const { COLLECTION } = require('../jobs/claimsIngest');
+const { createAuthedClient } = require('../lib/authtedClient');
 
+
+// YT-Validator's /asr/status lives on localhost:3001, which the browser cannot
+// reach, so the console reads it through here. Cached briefly: the console polls
+// once a minute, and the numbers only move when the collector runs (08:15 UTC).
+const COLLECTOR_CACHE_MS = 30000;
+let collectorCache = { at: 0, value: null, fetchedAt: null };
+
+async function fetchCollectorStatus() {
+  if (!process.env.ML_API_ENDPOINT) return collectorCache;
+  if (Date.now() - collectorCache.at < COLLECTOR_CACHE_MS) return collectorCache;
+
+  try {
+    // 2s and no retry: ingest status must answer even when that service is
+    // restarting. A hung upstream stalling the console is worse than a gap.
+    const client = await createAuthedClient(process.env.ML_API_ENDPOINT, { timeout: 2000 });
+    const { data } = await client.get('/asr/status');
+    collectorCache = { at: Date.now(), value: data, fetchedAt: new Date().toISOString() };
+  } catch (error) {
+    // Absent is a valid answer, but the causes differ: 404 means YT-Validator
+    // predates the endpoint (expected until it ships), while a refused
+    // connection or timeout means the service is down and worth noticing.
+    const status = error.response?.status;
+    console.log(status === 404
+      ? 'collector status: /asr/status not deployed yet (404)'
+      : `collector status unavailable: ${error.code || status || error.message}`);
+    collectorCache = { at: Date.now(), value: null, fetchedAt: null };
+  }
+  return collectorCache;
+}
 
 // Recent daily claims ingest attempts. authRequired means YouTube rejected the
 // stored sign-in on the latest attempt and someone has to re-authorize.
 async function getClaimsIngestStatus(req, res) {
   try {
     const collection = getDatabase().collection(COLLECTION);
-    const [recent, lastCompleted] = await Promise.all([
+    const [recent, lastCompleted, collector] = await Promise.all([
       collection.find({}).sort({ startedAt: -1 }).limit(10).toArray(),
-      collection.findOne({ status: 'completed' }, { sort: { startedAt: -1 } })
+      collection.findOne({ status: 'completed' }, { sort: { startedAt: -1 } }),
+      fetchCollectorStatus()
     ]);
     const lastAttempt = recent.find(r => !['skipped', 'running'].includes(r.status));
 
@@ -17,7 +48,11 @@ async function getClaimsIngestStatus(req, res) {
       enabled: ['true', '1'].includes(process.env.CLAIMS_INGEST_ENABLED),
       authRequired: !!lastAttempt?.authRequired,
       lastCompleted,
-      recent
+      recent,
+      collector: collector.value,
+      // when WE fetched it, distinct from collector.last_run (when it ran):
+      // with a cache in between, those two staleness questions diverge
+      collectorFetchedAt: collector.fetchedAt
     });
   } catch (error) {
     console.error('Claims ingest status error:', error);

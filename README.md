@@ -209,7 +209,7 @@ Guided upload:
 
 ### [Pending Runs — Claims & Verdicts Split](./docs/pending-runs.md)
 
-Claims (~1GB) are staged via the UI by Data Engineering. Ben uploads verdicts via Slack. The pipeline fires once both are present.
+Ben uploads verdicts via Slack. Claims now arrive automatically (below), so staging them by hand is the fallback. The pipeline fires once both are present.
 
 ### [Daily Claims Ingest — YouTube Reporting API](./docs/claims-reporting-api.md)
 

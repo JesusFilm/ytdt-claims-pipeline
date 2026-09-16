@@ -96,6 +96,35 @@ export YT_VALIDATOR_BRANCH="ML-Pipeline"
 > [its runbook](https://github.com/matthew-jf/YT-Validator/blob/ML-Pipeline/docs/deploy.md#update-the-service-on-a-running-vm)
 > instead.
 
+## Branches and mirroring
+
+`main` is the trunk and feature branches PR into it; `dev` was retired on 2026-09-16.
+Keep `legacy/typescript-rewrite-2025` (archive of the old `main`, the stalled TypeScript/ESM
+rewrite) and `feat/export-views-bigquery` (the MySQL → BigQuery migration).
+
+The VM tracks `main`. To ship merged work without re-provisioning:
+
+```shell
+gcloud compute ssh ytdt-claims --zone=us-east1-b
+cd /opt/ytdt-claims-pipeline
+git fetch origin && git checkout main && git pull --ff-only origin main
+sudo systemctl restart ytdt-claims-pipeline
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/health   # expect 200
+```
+
+`ceduth/ytdt-claims-pipeline` is a mirror of this repo, updated by hand today:
+
+```shell
+git push fork "+refs/remotes/origin/main:refs/heads/main"
+```
+
+`.github/workflows/mirror.yml` automates that on push to `main` but is **disabled** until
+`MIRROR_SSH_KEY` is a deploy key with write access on the mirror. It pushes an explicit refspec
+rather than `--mirror` (a CI checkout has remote-tracking refs, not local branches, so `--mirror`
+would publish `refs/remotes/*` and delete the mirror's real branches) and refuses any remote URL
+naming this repo: `ceduth-jfp/ytdt-claims-pipeline` is a permanent redirect back to
+`JesusFilm/ytdt-claims-pipeline`, so a mirror aimed there force-pushes this repo onto itself.
+
 ## Troubleshooting
 
 ### Verifying Configuration
