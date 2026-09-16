@@ -8,6 +8,11 @@ const fs = require('fs');
 
 const { createAuthedClient } = require('../lib/authtedClient.js');
 const { generateRunFolderName } = require('../lib/utils');
+const { raiseAlert, clearAlert } = require('../lib/serviceAlerts');
+
+// One key for both Drive paths — the step and the ML webhook — so a single
+// outage produces a single message rather than one per writer.
+const DRIVE_ALERT = 'drive-upload';
 const { getRunFolderId, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
@@ -122,12 +127,18 @@ async function handleMLWebhook(req, res) {
         const folderId = await getRunFolderId(pipeline_run_id, folderName, process.env.GOOGLE_DRIVE_NAME);
         driveUpload = await uploadFile(tempPath, folderId, num_results);
         console.log(`ML result uploaded to Drive: ${driveUpload.path}`);
+        await clearAlert(DRIVE_ALERT);
 
       } catch (uploadError) {
         // Record it: a console.error here left the step green while the file
         // never reached Drive, which is how this went unnoticed.
         uploadError_ = uploadError.message;
         console.error('Drive upload failed:', uploadError.message);
+        // Same alert key as the upload_drive step: one Drive outage, one message
+        await raiseAlert(DRIVE_ALERT,
+          `:file_folder: *Drive upload failed*\n${uploadError.message}\n` +
+          `The scored claims CSV was produced but has not reached ` +
+          `${process.env.GOOGLE_DRIVE_NAME || 'the shared drive'}, so Ben will not see it.`);
       }
     }
 

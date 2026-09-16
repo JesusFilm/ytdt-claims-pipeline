@@ -2,10 +2,11 @@
 
 ## Overview
 
-Two capabilities:
+Three capabilities:
 
 1. **Pipeline notifications** — bot posts to channel on completion/failure, with a "Rerun" button on failure
 2. **Guided verdicts upload** — Ben runs `/run-verdicts` in Slack and is walked through uploading each verdicts CSV, which then merges with pre-staged claims and fires the pipeline
+3. **Service alerts** — the silent failures, described below
 
 See [docs/pending-runs.md](./pending-runs.md) for the full claims/verdicts split flow.
 
@@ -19,6 +20,40 @@ User uploads CSV (or skips)
 Confirm → ▶ Run Pipeline
       ↓
 Pipeline Complete → Notification with 📁 View in Drive link
+```
+
+## Service Alerts
+
+Three failures are invisible from the console — nothing turns red, the run still
+reports success, and the first sign of trouble is someone asking where their file
+went. Each posts to `SLACK_CHANNEL` (default `#ytdt-pipeline`):
+
+| Alert key | Raised when | Cleared when |
+| --- | --- | --- |
+| `claims-ingest-auth` | the daily claims ingest cannot authenticate to the Reporting API | the next ingest authenticates |
+| `drive-upload` | exports or the scored CSV fail to reach the shared drive — the run completes either way | the next upload succeeds |
+| `console-login` | Google rejects our OAuth client: bad client id/secret, unregistered redirect URI, unverifiable token | the next successful sign-in |
+
+`console-login` deliberately ignores people refused for their domain. The app is
+public, so anyone can reach the callback and be turned away with a 403; alerting
+on that would be noise, and an open invitation to fill the channel.
+
+`claims-ingest-auth` predates the shared helper and dedupes off the previous
+ingestion record in `claims_report_ingestions` instead of `service_alerts`; the
+behaviour is the same, the state lives elsewhere.
+
+State lives in Mongo (`service_alerts`, one document per key), so a failure that
+repeats on every run posts **once**: the first occurrence. A success re-arms the
+key so the next outage is heard. Restarts and multiple processes share it.
+
+An alert that cannot be delivered is logged and swallowed — reporting a failure
+must never cause one. A Slack `ok:false` (e.g. `channel_not_found`) counts as
+undelivered, so the alert stays un-fired and is retried on the next failure.
+
+Offline checks, no Mongo or Slack needed:
+
+```bash
+node scripts/test-service-alerts.js
 ```
 
 ## Required Permissions
