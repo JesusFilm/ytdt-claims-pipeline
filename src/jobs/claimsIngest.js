@@ -39,6 +39,36 @@ const REAUTH_DOC_URL = 'https://github.com/JesusFilm/ytdt-claims-pipeline/blob/m
 let running = false;
 
 
+// Report downloads are named `<source>_<YYYY-MM-DD>_<reportId>.csv`. Only
+// those are removed: never subdirectories, never anything else someone left in
+// the directory, and never through a symlink.
+const REPORT_FILE = new RegExp(
+  `^(${Object.keys(youtubeReporting.CLAIMS_OWNERS).join('|')})_\\d{4}-\\d{2}-\\d{2}_\\d+\\.csv$`
+);
+
+// Called after a successful run. Clearing only that run's own files meant a
+// failed run's downloads were never removed, though the call site promised the
+// next successful run would; at ~1 GB a report, a few failures would fill the
+// disk unnoticed.
+async function removeReportDownloads(dir) {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  const removed = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !REPORT_FILE.test(entry.name)) continue;
+    await fs.promises.rm(path.join(dir, entry.name), { force: true });
+    removed.push(entry.name);
+  }
+  if (removed.length) console.log(`claims ingest: removed ${removed.length} report download(s)`);
+  return removed;
+}
+
+
 // True while an ingest holds the VPN/MySQL, in this process or another one
 // (e.g. the manual script). A crashed ingest stops counting after the timeout.
 async function isClaimsIngestRunning() {
@@ -147,7 +177,6 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
     status: 'starting',
     startTime: Date.now()
   };
-  const downloaded = [];
   let recordId = null;
   let stage = 'reporting'; // credentials are only exercised before the database stage
 
@@ -177,7 +206,6 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
       const dest = path.join(DOWNLOAD_DIR, `${source}_${report.startTime.slice(0, 10)}_${report.reportId}.csv`);
       console.log(`claims ingest: downloading ${source} report ${report.startTime}`);
       await youtubeReporting.downloadReport(auth, report, dest);
-      downloaded.push(dest);
       context.files.claims[source] = dest;
     }
 
@@ -245,7 +273,7 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
     // The API keeps reports for ~60 days, so a successful load needs no local copy.
     // Failed downloads stay for inspection until the next successful run.
     if (record.status === 'completed') {
-      for (const file of downloaded) await fs.promises.rm(file, { force: true });
+      await removeReportDownloads(DOWNLOAD_DIR);
     }
 
     record.endedAt = new Date();
@@ -301,5 +329,6 @@ module.exports = {
   runClaimsIngest,
   isClaimsIngestRunning,
   startClaimsIngestScheduler,
-  msUntilUtc
+  msUntilUtc,
+  removeReportDownloads
 };
