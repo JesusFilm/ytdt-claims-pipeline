@@ -8,7 +8,7 @@ const { createAuthedClient } = require('../lib/authtedClient');
 const { runDirName } = require('../lib/utils');
 const youtubeReporting = require('../lib/youtubeReporting');
 
-const { notifyClaimsIngestAuthRequired } = require('../lib/slackNotifier');
+const { raiseAlert, clearAlert } = require('../lib/serviceAlerts');
 
 const connectVPN = require('../steps/connect-vpn');
 const disconnectVPN = require('../steps/disconnect-vpn');
@@ -35,6 +35,9 @@ const STALE_AFTER_MS = (parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) || 60) * 
 // on the steps rather than having to find the repo first.
 const REAUTH_DOC_URL = 'https://github.com/JesusFilm/ytdt-claims-pipeline/blob/main/docs/' +
   'claims-reporting-api.md#when-google-asks-for-sign-in-again';
+const LOGIN_HINT = process.env.YT_REPORTING_LOGIN_HINT || 'the content-manager account';
+// One key for the whole ingest: an outage is one message, whatever caused it.
+const INGEST_ALERT = 'claims-ingest';
 
 let running = false;
 
@@ -123,29 +126,71 @@ async function findNewReports(auth, collection) {
   return pending;
 }
 
-// Failures only a person can fix, by signing in again with scripts/youtube-reporting-auth.js:
-// the refresh token expired or was revoked, or the account lost access to the content owner.
+// Failures at the credentials stage. The remedy differs — see describeFailure —
+// but all of them stop claims arriving until a person acts.
+const AUTH_REASONS = [
+  'invalid_grant',            // token expired, revoked, or clock skew
+  'invalid_client',
+  'unauthorized_client',
+  'invalid_scope',
+  'access_not_configured',    // Workspace has the service switched off for the account
+];
+
+// Google's token endpoint answers every refusal with 400, whatever the cause,
+// so a 400 from there is an auth failure even when the reason is unfamiliar.
+function isTokenEndpointFailure(error) {
+  const url = error.response?.config?.url || error.config?.url || '';
+  return error.response?.status === 400 && /oauth2\.googleapis\.com\/token/.test(url);
+}
+
 function isAuthError(error) {
   const reason = error.response?.data?.error;
   const status = error.response?.status;
-  return ['invalid_grant', 'invalid_client', 'unauthorized_client'].includes(reason) ||
+  return AUTH_REASONS.includes(reason) ||
     status === 401 || status === 403 ||
+    isTokenEndpointFailure(error) ||
     (error.code === 'ENOENT' && error.path === process.env.YT_REPORTING_TOKEN_FILE) ||
     /invalid_grant|YT_REPORTING_TOKEN_FILE|YouTube Reporting credentials/.test(error.message);
 }
 
-// One alert per outage, not one per daily retry.
-async function alertAuthRequired(collection, recordId, record) {
-  const previous = await collection.findOne(
-    { _id: { $ne: recordId }, status: { $nin: ['skipped', 'running'] } },
-    { sort: { startedAt: -1 } }
-  );
-  if (previous?.authRequired) return;
-  try {
-    await notifyClaimsIngestAuthRequired(record.error);
-  } catch (err) {
-    console.error('claims ingest: auth alert failed:', err.message);
+// What to tell whoever reads the alert. Signing in again fixes an expired or
+// revoked token; it does nothing when Workspace has switched YouTube off for
+// the account, which is a different person doing a different thing.
+function describeFailure(error, { authRequired }) {
+  const data = error.response?.data || {};
+  const reason = data.error;
+  const detail = [data.error_description, data.error_uri].filter(Boolean).join(' — ');
+
+  if (reason === 'access_not_configured') {
+    return {
+      lead: ':no_entry: *Claims ingest blocked by Workspace policy*',
+      short: `Google is refusing the sign-in for ${LOGIN_HINT} (${reason}${data.error_description ? `: ${data.error_description}` : ''}). ` +
+        'YouTube is switched off for that account in Workspace; an admin must re-enable it. No re-authorization ' +
+        'or backfill is needed — the next run collects the newest snapshot.',
+      body: `Google is refusing the sign-in for ${LOGIN_HINT}: ${reason}${detail ? ` (${detail})` : ''}.\n` +
+        'YouTube is switched off for that account, so no claims are collected. A Workspace admin has to ' +
+        're-enable YouTube for the org unit or group holding it (Admin console → Apps → Additional Google ' +
+        'services → YouTube). Signing in again will not help, and nothing needs backfilling: each report is ' +
+        'a full snapshot, so the next daily run catches up on its own.'
+    };
   }
+  if (authRequired) {
+    return {
+      lead: ':key: *Daily claims ingest needs re-authorization*',
+      short: `YouTube rejected the stored sign-in (${error.message}). Re-authorize from a laptop, not the VM: ` +
+        `run scripts/youtube-reporting-auth.js, then pipe the token to the VM. Steps: ${REAUTH_DOC_URL}`,
+      body: `${error.message}\n` +
+        `Claims stop arriving until someone signs in again as ${LOGIN_HINT}. About 5 minutes, from a laptop ` +
+        `rather than the VM: ${REAUTH_DOC_URL}`
+    };
+  }
+  return {
+    lead: ':warning: *Daily claims ingest failed*',
+    short: error.message,
+    body: `${error.message}\n` +
+      'No claims were collected. The next scheduled run will try again; if it is failing for a reason ' +
+      'nobody has seen before, the VM journal for ytdt-claims-pipeline has the detail.'
+  };
 }
 
 async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
@@ -178,6 +223,7 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
     startTime: Date.now()
   };
   let recordId = null;
+  let failure = null;
   let stage = 'reporting'; // credentials are only exercised before the database stage
 
   try {
@@ -250,16 +296,12 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
     return record;
 
   } catch (error) {
+    failure = error;
     record.status = 'failed';
-    record.error = error.message;
-    if (stage === 'reporting' && isAuthError(error)) {
-      record.authRequired = true;
-      // Say where, not just what: the sign-in script only works on a machine
-      // with a browser, so running it on the VM as this used to suggest fails.
-      record.error = `YouTube rejected the stored sign-in (${error.message}). Re-authorize from a ` +
-        'laptop, not the VM: run scripts/youtube-reporting-auth.js, then pipe the token to the VM. ' +
-        `Steps: ${REAUTH_DOC_URL}`;
-    }
+    record.authRequired = stage === 'reporting' && isAuthError(error);
+    // The recorded error says what to do about it, not just what broke: the
+    // console shows this on the ingest card, and the remedy differs per cause.
+    record.error = describeFailure(error, { authRequired: record.authRequired }).short;
     console.error('claims ingest failed:', error);
     return record;
 
@@ -279,7 +321,15 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
     record.endedAt = new Date();
     if (recordId) {
       await collection.updateOne({ _id: recordId }, { $set: record });
-      if (record.authRequired) await alertAuthRequired(collection, recordId, record);
+      // Every failure is announced, not only the ones we can classify: an
+      // access_not_configured block ran for two days in silence because it
+      // matched no predicate. A run that works again closes the alert.
+      if (record.status === 'failed' && failure) {
+        const { lead, body } = describeFailure(failure, { authRequired: !!record.authRequired });
+        await raiseAlert(INGEST_ALERT, `${lead}\n${body}`);
+      } else if (['completed', 'nothing_new'].includes(record.status)) {
+        await clearAlert(INGEST_ALERT);
+      }
     }
     running = false;
     console.log(`claims ingest: ${record.status}`);
@@ -330,5 +380,6 @@ module.exports = {
   isClaimsIngestRunning,
   startClaimsIngestScheduler,
   msUntilUtc,
-  removeReportDownloads
+  removeReportDownloads,
+  describeFailure
 };
