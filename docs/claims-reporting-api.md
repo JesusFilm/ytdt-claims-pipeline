@@ -19,7 +19,8 @@ export export_unprocessed_claims only  (data/exports/claims-ingest/<yyyyMMddHHmm
 POST ML_API_ENDPOINT/asr/queue  (multipart `file`)
 ```
 
-It is not a pipeline run: no `/predict`, no Drive upload, no Slack, no `pipeline_runs` record.
+It is not a pipeline run: no `/predict`, no Drive upload, no `pipeline_runs` record. The only Slack it
+sends is the `claims-ingest` alert when a run fails (see [slack-integration](./slack-integration.md)).
 
 It makes **no YouTube Data API calls**. The export runs the free half of `enrichUnprocessedClaims` —
 `licensed` and `media_component_id`, both joins against local CSVs — and skips only the
@@ -128,7 +129,9 @@ so exports from earlier runs stay downloadable. No migration was needed.
 | `YT_REPORTING_CLIENT_FILE` | — | Desktop OAuth client JSON, only if the token file lacks client_id/secret |
 | `YT_OWNER_MATTER_ENTERTAINMENT` / `YT_OWNER_MATTER_2` | IDs above | Content owner overrides |
 | `CLAIMS_REPORT_DIR` | `data/claims-reports` | Download location |
-| `ML_API_ENDPOINT` | — | YT-Validator base URL (existing) |
+| `ML_API_ENDPOINT` | — | YT-Validator base URL (existing); also enables the collector watch |
+| `COLLECTOR_WATCH_TIME_UTC` | `08:45` | Daily check of YT-Validator's collector, after its 08:15 run |
+| `COLLECTOR_STALE_HOURS` | `26` | Age of the collector's last run that counts as "did not run" |
 
 Keep token and client files under `config/` (gitignored).
 
@@ -162,7 +165,8 @@ The job treats `invalid_grant`, `invalid_client`, 401/403 and a missing token fi
 downloading reports, as **re-authorization required**:
 
 - the attempt is recorded as `failed` with `authRequired: true` and the fix in `error`;
-- one Slack message goes to `SLACK_CHANNEL` when this starts (not on every daily retry), if `SLACK_BOT_TOKEN` is set;
+- one Slack message goes to `SLACK_CHANNEL` when this starts, not on every daily retry, if `SLACK_BOT_TOKEN`
+  is set — and its wording depends on the cause, since a Workspace block needs an admin rather than a sign-in;
 - `GET /api/claims-ingest/status` returns `authRequired: true` until an attempt succeeds.
 
 #### Re-authorizing (about 5 minutes)

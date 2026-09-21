@@ -89,4 +89,4 @@ async function getClaimsIngestStatus(req, res) {
   }
 }
 
-module.exports = { getClaimsIngestStatus, ownerSnapshots };
+module.exports = { getClaimsIngestStatus, ownerSnapshots, fetchCollectorStatus };

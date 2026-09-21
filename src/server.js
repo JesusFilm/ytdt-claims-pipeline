@@ -5,6 +5,7 @@ const cors = require('cors');
 const { runPipeline, getPipelineStepNames } = require('./pipeline');
 const { connectToDatabase, closeConnection } = require('./database');
 const { isClaimsIngestRunning, startClaimsIngestScheduler } = require('./jobs/claimsIngest');
+const { startCollectorWatchScheduler } = require('./jobs/collectorWatch');
 
 const upload = require('./middleware/upload');
 const { authenticateRequest } = require('./middleware/auth');
@@ -174,6 +175,8 @@ async function startServer() {
   }
 
   startClaimsIngestScheduler();
+  // Nothing inside YT-Validator can report a collector run that never started
+  startCollectorWatchScheduler();
 
   app.listen(PORT, () => {
     console.log(`API running on port ${PORT}`);

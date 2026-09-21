@@ -24,23 +24,38 @@ Pipeline Complete → Notification with 📁 View in Drive link
 
 ## Service Alerts
 
-Three failures are invisible from the console — nothing turns red, the run still
+Some failures are invisible from the console — nothing turns red, the run still
 reports success, and the first sign of trouble is someone asking where their file
 went. Each posts to `SLACK_CHANNEL` (default `#ytdt-pipeline`):
 
 | Alert key | Raised when | Cleared when |
 | --- | --- | --- |
-| `claims-ingest-auth` | the daily claims ingest cannot authenticate to the Reporting API | the next ingest authenticates |
+| `claims-ingest` | any failed daily ingest, whatever the cause | the next ingest completes or finds nothing new |
+| `asr-collector` | YT-Validator's collector stopped, cached nothing, has not run for 26h, or `/asr/status` is unreachable | the next healthy collector run |
 | `drive-upload` | exports or the scored CSV fail to reach the shared drive — the run completes either way | the next upload succeeds |
 | `console-login` | Google rejects our OAuth client: bad client id/secret, unregistered redirect URI, unverifiable token | the next successful sign-in |
+
+`claims-ingest` covers every failure rather than the classified ones. On
+2026-09-20 and 09-21 the ingest failed with `access_not_configured` — Workspace
+had switched YouTube off for the content-manager account — and because that
+matched no auth predicate, two days passed with no claims and no message.
+
+Its wording branches on the cause, because the remedies have nothing in common:
+a Workspace block needs an admin to re-enable YouTube (no re-authorization, no
+backfill; each report is a full snapshot, so the next run catches up), an
+expired token needs someone to sign in again from a laptop, and anything else
+points at the VM journal.
+
+`asr-collector` is checked daily at `COLLECTOR_WATCH_TIME_UTC` (default 08:45,
+half an hour after the collector's own 08:15 run). YT-Validator posts nothing to
+Slack itself: one service owns the bot token, and a watcher outside the watched
+thing catches what it cannot report about itself — its systemd unit is skipped
+when `data/asr_queue.csv` is missing, so no process runs to notice. Not covered:
+this service failing, which needs an uptime check outside both.
 
 `console-login` deliberately ignores people refused for their domain. The app is
 public, so anyone can reach the callback and be turned away with a 403; alerting
 on that would be noise, and an open invitation to fill the channel.
-
-`claims-ingest-auth` predates the shared helper and dedupes off the previous
-ingestion record in `claims_report_ingestions` instead of `service_alerts`; the
-behaviour is the same, the state lives elsewhere.
 
 State lives in Mongo (`service_alerts`, one document per key), so a failure that
 repeats on every run posts **once**: the first occurrence. A success re-arms the
@@ -54,6 +69,8 @@ Offline checks, no Mongo or Slack needed:
 
 ```bash
 node scripts/test-service-alerts.js
+node scripts/test-ingest-alerts.js
+node scripts/test-collector-watch.js
 ```
 
 ## Required Permissions
