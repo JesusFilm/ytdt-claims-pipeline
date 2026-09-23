@@ -127,6 +127,7 @@ so exports from earlier runs stay downloadable. No migration was needed.
 | `CLAIMS_INGEST_TIME_UTC` | `06:00` | Daily run time, HH:MM UTC (YT-Validator's collector runs 08:15) |
 | `YT_REPORTING_TOKEN_FILE` | — | Authorized-user token JSON (refresh_token, client_id, client_secret), mode 0600 |
 | `YT_REPORTING_CLIENT_FILE` | — | Desktop OAuth client JSON, only if the token file lacks client_id/secret |
+| `YT_REPORTING_LOGIN_HINT` | — | Content-manager account (media@jesusfilm.org). Pre-fills the sign-in script, and names the account in failure alerts — without it they say "the content-manager account" |
 | `YT_OWNER_MATTER_ENTERTAINMENT` / `YT_OWNER_MATTER_2` | IDs above | Content owner overrides |
 | `CLAIMS_REPORT_DIR` | `data/claims-reports` | Download location |
 | `ML_API_ENDPOINT` | — | YT-Validator base URL (existing); also enables the collector watch |
