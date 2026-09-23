@@ -174,9 +174,14 @@ downloading reports, as **re-authorization required**:
 Do this from a **laptop**, not the VM. The script listens on `127.0.0.1` for Google's redirect, so it must run
 where the browser is — on the VM the sign-in completes in your browser and the VM never hears back.
 
-You need: a checkout of this repo with `yarn install` done, the Desktop OAuth client JSON from
-`jfp-data-warehouse` used for the first sign-in (keep it somewhere safe), a Chrome profile signed in as
-media@jesusfilm.org, and `gcloud` access to the VM.
+You need: a checkout of this repo with `yarn install` done, a Chrome profile signed in as
+media@jesusfilm.org, `gcloud` access to the VM, and — the part that costs a cycle if you get it wrong — the
+**Desktop ("installed") OAuth client JSON** from `jfp-data-warehouse`. EC keeps it at
+`~/Downloads/Claims/reporting_api_test/client_secret.json`; its client id matches the token on the VM.
+
+The console's web client in `config/` is a **different client** and the script refuses it with
+`Expected a Desktop app ("installed") OAuth client file`. Only a Desktop client may redirect to `127.0.0.1`,
+which is how the script receives Google's answer.
 
 1. Sign in and write a fresh token locally. Open the printed URL in the media@ profile and approve:
 
@@ -200,11 +205,38 @@ media@jesusfilm.org, and `gcloud` access to the VM.
    rm youtube-reporting-token.json
    ```
 
+Keep the token it replaces (`youtube-reporting-token.json.bak-<date>`) until the next run succeeds, so a bad
+install can be rolled back.
+
 The token is read on every run, so no restart is needed. The next scheduled run (06:00 UTC) succeeds and clears
-`authRequired`; to collect sooner, run `node scripts/ingest-claims-report.js` on the VM.
+`authRequired`. To verify now, on the VM:
+
+```bash
+sudo bash -c 'set -a; . /etc/ytdt-claims-pipeline/.env; set +a; node scripts/ingest-claims-report.js --dry-run'
+```
+
+`--dry-run` lists the reports it would fetch and writes nothing, so it proves the credentials without touching
+MySQL or the ASR queue. Drop the flag to collect for real.
 
 Signing in again pushes out the oldest token for this account and client once there are 100, so avoid repeated
 sign-ins "to be safe".
+
+#### Re-authorization or a policy block?
+
+`access_not_configured` / "Account Restricted" reads like Workspace having YouTube switched off for the
+account, and its `error_uri` points at an admin page. On 2026-09-23 it was **not** that: the stored grant had
+simply stopped working, media@ could use YouTube normally, and re-authorizing fixed it with no admin involved.
+The `application=` id in that URL is not our OAuth client id, so don't reason from it.
+
+The two are indistinguishable from the VM. **Attempting the sign-in is the test**, and it is the cheap one:
+
+- the consent flow completes and a token is written → it was the grant. Install it, done.
+- the consent flow itself is refused → it is a policy block, and a Workspace admin has to allow the app
+  (Security → Access and data control → API controls → App access control) or re-enable YouTube for the org
+  unit holding the account (Apps → Additional Google services).
+
+Either way nothing needs backfilling: each report is a full snapshot of active claims, so the next run collects
+the newest one and catches up. Days with no run leave no gap to reconstruct.
 
 #### Planned: reconnect from the console
 
