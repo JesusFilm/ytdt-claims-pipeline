@@ -133,7 +133,7 @@ const AUTH_REASONS = [
   'invalid_client',
   'unauthorized_client',
   'invalid_scope',
-  'access_not_configured',    // Workspace has the service switched off for the account
+  'access_not_configured',    // the stored grant refused; occasionally a policy block
 ];
 
 // Google's token endpoint answers every refusal with 400, whatever the cause,
@@ -153,25 +153,29 @@ function isAuthError(error) {
     /invalid_grant|YT_REPORTING_TOKEN_FILE|YouTube Reporting credentials/.test(error.message);
 }
 
-// What to tell whoever reads the alert. Signing in again fixes an expired or
-// revoked token; it does nothing when Workspace has switched YouTube off for
-// the account, which is a different person doing a different thing.
+// What to tell whoever reads the alert. Nearly every credentials failure is
+// fixed by signing in again; a policy block needs an admin instead, and the two
+// are indistinguishable here — only attempting the sign-in separates them.
 function describeFailure(error, { authRequired }) {
   const data = error.response?.data || {};
   const reason = data.error;
   const detail = [data.error_description, data.error_uri].filter(Boolean).join(' — ');
 
   if (reason === 'access_not_configured') {
+    // 2026-09-23: this was read as Workspace having YouTube switched off for the
+    // account, and it was not — re-authorizing fixed it, with no admin involved.
+    // The two look identical from here, so say the cheap remedy first and give
+    // the expensive one its own test: whether the sign-in itself is refused.
     return {
-      lead: ':no_entry: *Claims ingest blocked by Workspace policy*',
-      short: `Google is refusing the sign-in for ${LOGIN_HINT} (${reason}${data.error_description ? `: ${data.error_description}` : ''}). ` +
-        'YouTube is switched off for that account in Workspace; an admin must re-enable it. No re-authorization ' +
-        'or backfill is needed — the next run collects the newest snapshot.',
-      body: `Google is refusing the sign-in for ${LOGIN_HINT}: ${reason}${detail ? ` (${detail})` : ''}.\n` +
-        'YouTube is switched off for that account, so no claims are collected. A Workspace admin has to ' +
-        're-enable YouTube for the org unit or group holding it (Admin console → Apps → Additional Google ' +
-        'services → YouTube). Signing in again will not help, and nothing needs backfilling: each report is ' +
-        'a full snapshot, so the next daily run catches up on its own.'
+      lead: ':key: *Daily claims ingest needs re-authorization*',
+      short: `Google refused the stored sign-in for ${LOGIN_HINT} (${reason}` +
+        `${data.error_description ? `: ${data.error_description}` : ''}). Re-authorize from a laptop, not the ` +
+        `VM: run scripts/youtube-reporting-auth.js, then install the token. Steps: ${REAUTH_DOC_URL}`,
+      body: `Google refused the stored sign-in for ${LOGIN_HINT}: ${reason}${detail ? ` (${detail})` : ''}.\n` +
+        `Sign in again — about 5 minutes, from a laptop rather than the VM: ${REAUTH_DOC_URL}\n` +
+        'If the consent flow itself is refused rather than the stored grant, it is a policy block instead: ' +
+        'a Workspace admin has to allow the app or re-enable YouTube for that account. Either way nothing ' +
+        'needs backfilling — each report is a full snapshot, so the next run catches up on its own.'
     };
   }
   if (authRequired) {

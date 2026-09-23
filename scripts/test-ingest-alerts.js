@@ -12,8 +12,9 @@ const assert = require('assert');
 process.env.YT_REPORTING_LOGIN_HINT = 'media@jesusfilm.org';
 const { isAuthError, describeFailure } = require('../src/jobs/claimsIngest');
 
-// The failure that ran silently on 2026-09-20 and 09-21, as gaxios reports it.
-const workspaceBlock = Object.assign(new Error('access_not_configured'), {
+// The failure that ran silently on 2026-09-20 to 09-23, as gaxios reports it.
+// Re-authorizing fixed it, though the error reads like a policy block.
+const refusedGrant = Object.assign(new Error('access_not_configured'), {
   config: { url: 'https://oauth2.googleapis.com/token' },
   response: {
     status: 400,
@@ -37,9 +38,9 @@ const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
 
-test('the Workspace block counts as an auth failure', () => {
+test('a refused grant counts as an auth failure', () => {
   // it did not before: reason unlisted, status 400, no ENOENT, regex no match
-  assert.strictEqual(isAuthError(workspaceBlock), true);
+  assert.strictEqual(isAuthError(refusedGrant), true);
 });
 
 test('any refusal from the token endpoint counts, even an unfamiliar one', () => {
@@ -61,17 +62,20 @@ test('a missing token file still counts', () => {
   assert.strictEqual(isAuthError(missing), true);
 });
 
-test('the Workspace block tells an admin to re-enable YouTube, not to sign in', () => {
-  const { lead, body, short } = describeFailure(workspaceBlock, { authRequired: true });
-  assert.match(lead, /blocked by Workspace policy/);
+test('a refused grant says re-authorize first, policy block as the fallback', () => {
+  // read as a Workspace block on 2026-09-21 and it was not: re-auth fixed it
+  const { lead, body, short } = describeFailure(refusedGrant, { authRequired: true });
+  assert.match(lead, /needs re-authorization/);
   assert.match(body, /Account Restricted/);
   assert.match(body, /ServiceNotAllowed/);          // the link is what makes it diagnosable
-  assert.match(body, /admin/);
-  assert.match(body, /media@jesusfilm\.org/);
-  assert.match(body, /Signing in again will not help/);
-  assert.match(body, /nothing needs backfilling/);
-  assert.doesNotMatch(body, /youtube-reporting-auth/);
-  assert.match(short, /an admin must re-enable/i);
+  assert.match(body, /Sign in again/);
+  assert.match(body, /claims-reporting-api\.md#when-google-asks-for-sign-in-again/);
+  assert.match(short, /Re-authorize from a laptop/);
+  // the admin remedy is there, but behind the signal that separates the two
+  const policy = body.slice(body.indexOf('If the consent flow'));
+  assert.match(policy, /policy block/);
+  assert.match(policy, /admin/);
+  assert.match(body, /nothing\s+needs backfilling/);
 });
 
 test('an expired token does tell someone to sign in again, from a laptop', () => {
