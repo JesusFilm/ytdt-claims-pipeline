@@ -142,6 +142,46 @@ async function loadStaging(bq, ndjsonPath, stagingName, schema) {
 }
 
 /**
+ * Report what the MERGE would do, without doing it.
+ *
+ * The number that matters is preserved_unavailable: claims the connector has marked
+ * available = 0 that MySQL still has, and whose flag the MERGE will therefore carry over. A
+ * truncate-load would reset every one of them to 1.
+ */
+async function previewMerge(bq, stagingName) {
+  const live = tableRef(TABLE);
+  const staging = tableRef(stagingName);
+  // Anti-joins rather than NOT EXISTS: BigQuery refuses correlated subqueries it cannot
+  // de-correlate, and these are evaluated against a CTE-shaped source.
+  const [rows] = await bq.query({
+    query: `
+      WITH src AS (SELECT DISTINCT ${MERGE_KEY} FROM ${staging}),
+      dst AS (SELECT ${MERGE_KEY}, available FROM ${live}),
+      matched AS (
+        SELECT d.available FROM dst d JOIN src s USING (${MERGE_KEY})
+      ),
+      inserts AS (
+        SELECT s.${MERGE_KEY} FROM src s
+        LEFT JOIN dst d USING (${MERGE_KEY}) WHERE d.${MERGE_KEY} IS NULL
+      ),
+      deletes AS (
+        SELECT d.available FROM dst d
+        LEFT JOIN src s USING (${MERGE_KEY}) WHERE s.${MERGE_KEY} IS NULL
+      )
+      SELECT
+        (SELECT COUNT(*) FROM src)     AS source_rows,
+        (SELECT COUNT(*) FROM dst)     AS live_rows,
+        (SELECT COUNT(*) FROM matched) AS would_update,
+        (SELECT COUNT(*) FROM inserts) AS would_insert,
+        (SELECT COUNT(*) FROM deletes) AS would_delete,
+        (SELECT COUNTIF(available = 0) FROM matched) AS preserved_unavailable,
+        (SELECT COUNTIF(available = 0) FROM deletes) AS unavailable_deleted
+    `,
+  });
+  return rows[0];
+}
+
+/**
  * MERGE staging -> live. MySQL-owned columns are overwritten, BQ-owned ones are untouched on
  * matched rows and unset on inserts, and claims MySQL no longer has are deleted.
  */
@@ -174,7 +214,7 @@ async function mergeIntoLive(bq, stagingName, columns) {
   return metadata.statistics.query.dmlStats || {};
 }
 
-async function runClaimsMirror({ trigger = 'manual' } = {}) {
+async function runClaimsMirror({ trigger = 'manual', dryRun = false } = {}) {
   if (running) {
     console.log('Claims mirror already running, skipping');
     return null;
@@ -212,6 +252,29 @@ async function runClaimsMirror({ trigger = 'manual' } = {}) {
 
     await loadStaging(bq, ndjsonPath, stagingName, schema);
     console.log(`Staged ${staged} rows into ${stagingName}`);
+
+    if (dryRun) {
+      const p = await previewMerge(bq, stagingName);
+      console.log(
+        `DRY RUN — no changes written.\n` +
+          `  MySQL rows           : ${p.source_rows}\n` +
+          `  BigQuery rows now    : ${p.live_rows}\n` +
+          `  would UPDATE         : ${p.would_update}\n` +
+          `  would INSERT         : ${p.would_insert}\n` +
+          `  would DELETE         : ${p.would_delete}   <-- claims MySQL no longer has\n` +
+          `  available=0 preserved: ${p.preserved_unavailable}   <-- would be reset to 1 by a truncate-load\n` +
+          `  available=0 deleted  : ${p.unavailable_deleted}   <-- gone from MySQL, so dropped`
+      );
+      if (Number(p.would_delete) > Number(p.source_rows) * 0.1) {
+        console.warn(
+          `WARNING: the MERGE would delete more than 10% of the live table. Check the extract ` +
+            `before running for real.`
+        );
+      }
+      // Staging is left in place so the numbers above can be inspected.
+      ok = true;
+      return { dryRun: true, ...p };
+    }
 
     const stats = await mergeIntoLive(bq, stagingName, columns);
     console.log(
@@ -283,6 +346,7 @@ module.exports = {
   BQ_OWNED_COLUMNS,
   MERGE_KEY,
   runClaimsMirror,
+  previewMerge,
   msUntilUtc,
   startClaimsMirrorScheduler,
 };
