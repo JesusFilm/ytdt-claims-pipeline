@@ -56,14 +56,16 @@
  *   BQ_DATASET      must be the dataset Airbyte and dbt read (currently `airbyte`)
  *   BQ_KEY_FILE     default ./config/service-account-key.json
  *   CLAIMS_MIRROR_ENABLED   "true" to arm the scheduler
- *   CLAIMS_MIRROR_TIME_UTC  HH:MM, default 05:30 — must land BEFORE the Airbyte sync
+ *   CLAIMS_MIRROR_TIME_UTC  HH:MM, default 03:00 — before the Airbyte sync, and clear of the
+ *                           06:00 claims ingest: only one OpenVPN client can run at a time
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const mysql = require('mysql2/promise');
 const { BigQuery } = require('@google-cloud/bigquery');
+const connectVPN = require('../steps/connect-vpn');
+const disconnectVPN = require('../steps/disconnect-vpn');
 
 /**
  * mode 'merge'   — preserves `bqOwned` columns; needs `key`. Use when BigQuery writes columns
@@ -105,7 +107,11 @@ function tableRef(name) {
 /** Coerce a MySQL value to something BigQuery's JSON loader accepts. */
 function jsonify(value) {
   if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) {
+    // MySQL zero dates ('0000-00-00') arrive as an Invalid Date, and toISOString() throws
+    // RangeError on those. Treat them as NULL, which is what they mean.
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
   if (Buffer.isBuffer(value)) return value.toString('utf8');
   return value;
 }
@@ -381,17 +387,14 @@ async function runMirror({ trigger = 'manual', dryRun = false, tables = null } =
 
   const bq = bqClient();
   const specs = tables ? TABLES.filter((t) => tables.includes(t.name)) : TABLES;
-  let pool;
+  // RDS is reachable only through the pipeline's OpenVPN tunnel; a direct pool times out.
+  // connectVPN raises the tunnel (unless SKIP_VPN) and builds context.connections.mysql.
+  // Only one OpenVPN client can run at a time, so this must not overlap a pipeline run.
+  const context = { connections: {} };
 
   try {
-    pool = await mysql.createPool({
-      host: process.env.MYSQL_HOST,
-      user: process.env.MYSQL_USER,
-      password: process.env.MYSQL_PASSWORD,
-      database: process.env.MYSQL_DATABASE,
-      waitForConnections: true,
-      connectionLimit: 2,
-    });
+    await connectVPN(context);
+    const pool = context.connections.mysql;
 
     const results = [];
     for (const spec of specs) {
@@ -407,7 +410,9 @@ async function runMirror({ trigger = 'manual', dryRun = false, tables = null } =
     return results;
   } finally {
     running = false;
-    if (pool) await pool.end();
+    // disconnectVPN closes the MySQL pool itself; ending it again throws and would mask
+    // whatever real error sent us here.
+    try { await disconnectVPN(context); } catch (e) { console.error('VPN teardown failed:', e.message); }
   }
 }
 
@@ -425,7 +430,7 @@ function startMirrorScheduler() {
     return;
   }
 
-  const time = process.env.CLAIMS_MIRROR_TIME_UTC || '05:30';
+  const time = process.env.CLAIMS_MIRROR_TIME_UTC || '03:00';
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
     throw new Error(`CLAIMS_MIRROR_TIME_UTC must be HH:MM, got "${time}"`);
   }
