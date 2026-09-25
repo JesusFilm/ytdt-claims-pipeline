@@ -6,7 +6,7 @@ const { runPipeline, getPipelineStepNames } = require('./pipeline');
 const { connectToDatabase, closeConnection } = require('./database');
 const { isClaimsIngestRunning, startClaimsIngestScheduler } = require('./jobs/claimsIngest');
 const { startCollectorWatchScheduler } = require('./jobs/collectorWatch');
-const { startClaimsMirrorScheduler } = require('./jobs/mirrorClaimsToBq');
+const { startMirrorScheduler } = require('./jobs/mirrorMysqlToBq');
 
 const upload = require('./middleware/upload');
 const { authenticateRequest } = require('./middleware/auth');
@@ -178,9 +178,10 @@ async function startServer() {
   startClaimsIngestScheduler();
   // Nothing inside YT-Validator can report a collector run that never started
   startCollectorWatchScheduler();
-  // Interim MySQL -> BigQuery claims mirror; Airbyte reads the MCN list from BigQuery.
+  // Interim MySQL -> BigQuery mirror: Airbyte reads the MCN claim list from BigQuery and
+  // dbt reads youtube_channels.include_in_reporting, which gates both plays paths.
   // Delete once process-claims.js writes BigQuery directly (feat/export-views-bigquery).
-  startClaimsMirrorScheduler();
+  startMirrorScheduler();
 
   app.listen(PORT, () => {
     console.log(`API running on port ${PORT}`);
