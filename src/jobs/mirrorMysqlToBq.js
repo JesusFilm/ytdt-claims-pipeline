@@ -11,13 +11,22 @@
  *   youtube_mcn_claims  MERGE   — the MCN video list the connector reads, filtered by its
  *                                 claims_filter. Has a BigQuery-owned column, so it cannot be
  *                                 truncate-loaded (see COLUMN OWNERSHIP).
+ *   youtube_video_views_by_day_public,
+ *   youtube_public_videos_stg
+ *                       REPLACE — the public-videos leg of the JFM plays view. The deployed
+ *                                 MySQL view unions owned-channel plays with public
+ *                                 (non-owned) video plays; the copy in
+ *                                 jfm_youtube_analytics/sql/views/ shows only the first leg
+ *                                 and is stale. The second leg is 500 channels, 2.1M rows,
+ *                                 36.2M plays — 5.48% of all-time legacy JFM. Neither table
+ *                                 has an Airbyte stream.
  *   youtube_channels    REPLACE — carries include_in_reporting, which gates BOTH plays paths:
  *                                 bi_view_youtube_plays_date_country_jfm joins on it and
- *                                 ..._mcn excludes on it. dbt previously read this from a
- *                                 hand-maintained CSV seed that had drifted to 15 rows against
- *                                 499 reporting channels in MySQL — a 5.48% all-time JFM plays
- *                                 shortfall. Nothing on the BigQuery side writes it, so a
- *                                 truncate-load is correct and simpler than a MERGE.
+ *                                 ..._mcn excludes on it. dbt read it from a hand-maintained
+ *                                 CSV seed, which was accurate (15 rows, 14 flagged, matching
+ *                                 MySQL) but is a copy someone has to remember to update.
+ *                                 Nothing on the BigQuery side writes it, so a truncate-load
+ *                                 is correct and simpler than a MERGE.
  *
  * COLUMN OWNERSHIP — the contract the MERGE path exists to honour
  * --------------------------------------------------------------
@@ -65,6 +74,11 @@ const { BigQuery } = require('@google-cloud/bigquery');
 const TABLES = [
   { name: 'youtube_mcn_claims', mode: 'merge', key: 'video_id', bqOwned: ['available'] },
   { name: 'youtube_channels', mode: 'replace', bqOwned: [] },
+  // Public (non-owned) videos: the second UNION ALL leg of the live
+  // bi_view_youtube_plays_date_country_jfm view, worth 5.48% of all-time legacy JFM plays.
+  // Neither table has an Airbyte stream, so the mirror is the only route into BigQuery.
+  { name: 'youtube_video_views_by_day_public', mode: 'replace', bqOwned: [] },
+  { name: 'youtube_public_videos_stg', mode: 'replace', bqOwned: [] },
 ];
 
 let running = false;
