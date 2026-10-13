@@ -7,7 +7,7 @@ const fs = require('fs');
 
 
 const { createAuthedClient } = require('../lib/authtedClient.js');
-const { generateRunFolderName } = require('../lib/utils');
+const { generateRunFolderName, resolveRunExportDir } = require('../lib/utils');
 const { raiseAlert, clearAlert } = require('../lib/serviceAlerts');
 
 // One key for both Drive paths — the step and the ML webhook — so a single
@@ -101,7 +101,12 @@ async function handleMLWebhook(req, res) {
     const run = await db.collection('pipeline_runs').findOne({ _id: new ObjectId(pipeline_run_id) });
     const enrichStep = run?.startedSteps?.find(s => s.name === 'enrich_ml');
     const duration = enrichStep?.timestamp ? Date.now() - new Date(enrichStep.timestamp).getTime() : 0;
-    const folderName = generateRunFolderName(run.startTime);;
+    // Two different names for the same run: folderName labels the Drive folder
+    // ("Oct 13 2026 06:24:06 PM"), while the run's files live in the safe local
+    // directory (20261013182406). Writing the scored CSV under the label failed
+    // with ENOENT — the directory does not exist — so it never reached Drive.
+    const folderName = generateRunFolderName(run.startTime);
+    const exportDir = resolveRunExportDir(run.startTime);
     const fileName = `unprocessed_claims_${enrichStep.name}.csv`
     const fullCsvUrl = path.join(process.env.ML_API_ENDPOINT, csv_path);
 
@@ -115,7 +120,8 @@ async function handleMLWebhook(req, res) {
         const mlClient = await createAuthedClient(process.env.ML_API_ENDPOINT);
         const response = await mlClient.get(csv_path, { responseType: 'stream' });
 
-        const tempPath = path.join(process.cwd(), 'data', 'exports', folderName, fileName);
+        const tempPath = path.join(exportDir, fileName);
+        await fs.promises.mkdir(exportDir, { recursive: true });
         const writer = fs.createWriteStream(tempPath);
         response.data.pipe(writer);
         await new Promise((resolve, reject) => {
