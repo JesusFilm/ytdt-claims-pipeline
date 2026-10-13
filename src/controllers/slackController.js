@@ -7,7 +7,7 @@ const { getDatabase } = require('../database');
 const { runPipeline, getCurrentPipelineStatus } = require('../pipeline');
 const { STEPS, getSession, createSession, updateSession, deleteSession, currentStep, stepCount } = require('../lib/slackSession');
 const { getPendingRun, clearPendingRun } = require('../lib/pendingRun');
-const { isClaimsIngestRunning } = require('../jobs/claimsIngest');
+const { isClaimsIngestRunning, COLLECTION: INGEST_COLLECTION } = require('../jobs/claimsIngest');
 
 
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
@@ -125,6 +125,34 @@ async function downloadSlackFile(url, destPath) {
   });
 }
 
+function stagedSources(pendingRun) {
+  const sources = [];
+  if (pendingRun.claims?.matter_entertainment) sources.push('Matter Entertainment');
+  if (pendingRun.claims?.matter_2) sources.push('Matter 2');
+  return sources;
+}
+
+// Which claims the run will use. Said out loud because the two cases look
+// identical from Slack: uploaded files, or whatever the daily ingest has loaded.
+// Whoever runs this when nobody is around should not have to guess.
+async function claimsSourceLine(pendingRun) {
+  if (pendingRun) {
+    return `📋 *Claims:* staged by ${pendingRun.uploadedBy || 'the data team'} ` +
+      `(${stagedSources(pendingRun).join(', ') || 'no sources listed'}), uploaded ${formatTimestamp(pendingRun.uploadedAt)}`;
+  }
+  let snapshot = null;
+  try {
+    const last = await getDatabase().collection(INGEST_COLLECTION)
+      .findOne({ status: 'completed' }, { sort: { startedAt: -1 } });
+    snapshot = Object.values(last?.reports || {}).map(r => r.startTime).sort().slice(-1)[0] || null;
+  } catch (error) {
+    console.error('slack: could not read the last ingest:', error.message);
+  }
+  return snapshot
+    ? `📋 *Claims:* already collected daily — newest snapshot ${snapshot.slice(0, 10)}`
+    : '📋 *Claims:* already collected daily';
+}
+
 // ─── Slash command: /run-verdicts ───────────────────────────────────────────
 
 async function handleSlashCommand(req, res) {
@@ -133,16 +161,11 @@ async function handleSlashCommand(req, res) {
   const userId = req.body.user_id;
   const channel = req.body.channel_id;
 
+  // Claims arrive on their own since the daily ingest, so staged claim files are
+  // the exception now, not the precondition. Refusing without them stopped the
+  // verdicts flow working at all.
   const pendingRun = await getPendingRun();
-  if (!pendingRun) {
-    await slackPost(channel, [], '_No claims are currently staged. Please check with the data team._');
-    return;
-  }
-
-  const sources = [];
-  if (pendingRun.claims.matter_entertainment) sources.push('Matter Entertainment');
-  if (pendingRun.claims.matter_2) sources.push('Matter 2');
-  const stagedText = `📋 *Staged claims:* ${sources.join(', ')}\n_Uploaded ${formatTimestamp(pendingRun.uploadedAt)}_`;
+  const stagedText = await claimsSourceLine(pendingRun);
 
   const session = await createSession(userId);
   await updateSession(userId, { channel });
@@ -306,32 +329,36 @@ async function handleInteraction(req, res) {
       return;
     }
 
-    // Check for staged claims
+    // Staged claims if someone uploaded them; otherwise the ones the daily
+    // ingest already merged into youtube_mcn_claims, which is the normal case.
     const pendingRun = await getPendingRun();
-    if (!pendingRun) {
-      await slackPost(channel, [], '_No claims are currently staged. Please check with the data team._');
+    if (!session.files.mcn_verdicts && !session.files.jfm_verdicts && !pendingRun) {
+      await slackPost(channel, [], '_No verdicts uploaded and no claims staged — nothing to run._');
       return;
     }
 
     // Map session files → pipeline files shape
     const files = {
-      claims: pendingRun.claims,
+      claims: pendingRun ? pendingRun.claims : {},
       mcnVerdicts: session.files.mcn_verdicts || null,
       jfmVerdicts: session.files.jfm_verdicts || null,
     };
 
+    // Name the claims again at the point of no return, not only at the start
+    const started = `⏳ Pipeline started! You'll get a notification here when it's done.\n` +
+      `${await claimsSourceLine(pendingRun)}`;
     if (session.promptTs) {
-      await slackUpdate(session.channel, session.promptTs, [], '⏳ Pipeline started! You\'ll get a notification here when it\'s done.');
+      await slackUpdate(session.channel, session.promptTs, [], started);
     } else {
-      await slackPost(channel, [], '⏳ Pipeline started! You\'ll get a notification here when it\'s done.');
+      await slackPost(channel, [], started);
     }
     await deleteSession(userId);
 
     runPipeline(files, {}, null, { source: 'slack', user: payload.user.username || payload.user.id })
-      .then(() => clearPendingRun())
+      .then(() => (pendingRun ? clearPendingRun() : null))
       .catch(err => console.error('Slack-triggered pipeline failed:', err));
     return;
   }
 }
 
-module.exports = { handleSlashCommand, handleEvent, handleInteraction };
+module.exports = { handleSlashCommand, handleEvent, handleInteraction, claimsSourceLine };
