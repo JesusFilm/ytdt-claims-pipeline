@@ -92,9 +92,11 @@ function classifyVerdicts(videoIds, ownedIds, { ownedHigh = 0.7, ownedLow = 0.3,
   return { kind, ratio, sampled: taken.length, reason: null };
 }
 
-// video_id column of a verdicts file, for classifyVerdicts
-function readVideoIds(filePath, limit = 5000) {
-  return readColumn(filePath, 'video_id').slice(0, limit);
+// video_id column of a verdicts file, for classifyVerdicts. Not truncated: the
+// count is reported to whoever is about to press Run, and a sample cap shown as
+// the row count said "5,000 rows" for a 45,495-row file.
+function readVideoIds(filePath) {
+  return readColumn(filePath, 'video_id');
 }
 
 module.exports = { classifyCsv, classifyVerdicts, ownedVideoIds, readVideoIds, normalizeHeader, VERDICT_COLUMNS };
