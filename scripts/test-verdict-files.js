@@ -62,6 +62,15 @@ test('owned ids survive commas inside video descriptions', () => {
   assert.deepStrictEqual([...ids].sort(), ['vid_one', 'vid_two']);
 });
 
+test('every row is counted, not just the classification sample', () => {
+  // the count goes in front of the person pressing Run, so it must be the real one
+  const rows = Array.from({ length: 6000 }, (_, i) => `vid${i},N,,262,,529,0`).join('\n');
+  const p = write('big.csv', `${VERDICT_HEADER}\n${rows}\n`);
+  assert.strictEqual(readVideoIds(p).length, 6000);
+  // and the classifier still samples rather than reading all of them
+  assert.strictEqual(classifyVerdicts(readVideoIds(p), new Set(['vid0'])).sampled, 200);
+});
+
 test('video ids are read from a quoted verdicts file', () => {
   const p = write('v.csv', `${VERDICT_HEADER}\nabc123,N,"code, with comma",262,1_jf,529,0\ndef456,Y,,262,,529,0\n`);
   assert.deepStrictEqual(readVideoIds(p), ['abc123', 'def456']);
