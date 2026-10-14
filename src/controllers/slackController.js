@@ -7,6 +7,7 @@ const { getDatabase } = require('../database');
 const { runPipeline, getCurrentPipelineStatus } = require('../pipeline');
 const { STEPS, getSession, createSession, updateSession, deleteSession, currentStep, stepCount } = require('../lib/slackSession');
 const { getPendingRun, clearPendingRun } = require('../lib/pendingRun');
+const { classifyCsv, classifyVerdicts, ownedVideoIds, readVideoIds } = require('../lib/verdictFiles');
 const { isClaimsIngestRunning, COLLECTION: INGEST_COLLECTION } = require('../jobs/claimsIngest');
 
 
@@ -196,10 +197,81 @@ async function handleEvent(req, res) {
   }
 }
 
+// Files dropped in the channel with no session running. Ben sends the verdicts
+// anyway; making him remember a slash command first, then answer which box each
+// file belongs in, was friction with no purpose — the files say what they are.
+async function handleDroppedFiles(event) {
+  const csvFiles = event.files.filter(f => f.name?.endsWith('.csv') || f.mimetype === 'text/csv');
+  if (!csvFiles.length) return;
+
+  const channel = event.channel;
+  const userId = event.user;
+  const uploadDir = path.join(process.cwd(), 'data', 'uploads');
+  fs.mkdirSync(uploadDir, { recursive: true });
+
+  const owned = ownedVideoIds();
+  const files = {};
+  const lines = [];
+  const unsure = [];
+
+  for (const file of csvFiles.slice(0, 4)) {
+    const destPath = path.join(uploadDir, `slack_${userId}_${Date.now()}_${file.name.replace(/[^\w.-]/g, '_')}`);
+    try {
+      await downloadSlackFile(file.url_private_download, destPath);
+    } catch (err) {
+      console.error('Failed to download Slack file:', err.message);
+      continue;
+    }
+
+    const header = fs.readFileSync(destPath, 'utf8').slice(0, 4096).split('\n')[0];
+    const kind = classifyCsv(header);
+    if (kind === 'claims') {
+      lines.push(`• \`${file.name}\` — a *claims* file. Claims are collected daily now, so this is not needed; ` +
+        'upload it in the console only if collection is down.');
+      continue;
+    }
+    if (kind !== 'verdicts') {
+      lines.push(`• \`${file.name}\` — not a verdicts file (its columns are neither claims nor verdicts).`);
+      continue;
+    }
+
+    const videoIds = readVideoIds(destPath);
+    const verdict = classifyVerdicts(videoIds, owned);
+    const rows = videoIds.length.toLocaleString();
+    if (verdict.kind === 'unsure') {
+      unsure.push(file.name);
+      lines.push(`• \`${file.name}\` — ${rows} verdicts, but whether these are MCN or JFM is unclear` +
+        `${verdict.ratio === null ? ` (${verdict.reason})` : ` (${Math.round(verdict.ratio * 100)}% are our own videos)`}.`);
+      continue;
+    }
+    const key = verdict.kind === 'jfm' ? 'jfm_verdicts' : 'mcn_verdicts';
+    files[key] = destPath;
+    lines.push(`• \`${file.name}\` — *${verdict.kind.toUpperCase()} verdicts*, ${rows} rows ` +
+      `(${Math.round(verdict.ratio * 100)}% of these videos are ours).`);
+  }
+
+  if (!Object.keys(files).length) {
+    lines.push('', 'Nothing to run. Send the verdicts CSV, or use `/run-verdicts` to be guided through it.');
+    await slackPost(channel, [], lines.join('\n'));
+    return;
+  }
+
+  const session = await createSession(userId);
+  await updateSession(userId, { channel, files, stepIndex: stepCount() });
+  const summary = [`*Verdicts received*`, ...lines, '', await claimsSourceLine(await getPendingRun())];
+  if (unsure.length) summary.push(`_Not included: ${unsure.join(', ')} — use \`/run-verdicts\` to place ${unsure.length > 1 ? 'them' : 'it'}._`);
+
+  const resp = await slackPost(channel, [
+    { type: 'section', text: { type: 'mrkdwn', text: summary.join('\n') } },
+    ...confirmBlock({ ...session, files }).slice(1),
+  ], 'Verdicts received');
+  await updateSession(userId, { channel, files, stepIndex: stepCount(), promptTs: resp.data.ts });
+}
+
 async function handleFileMessage(event) {
   const userId = event.user;
   const session = await getSession(userId);
-  if (!session) return; // No active session for this user — ignore
+  if (!session) return handleDroppedFiles(event);
 
   const file = event.files[0];
   const step = currentStep(session);
