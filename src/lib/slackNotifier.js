@@ -75,15 +75,23 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     shortsText = `\n\n*Shorts Detected (${marked.toLocaleString()} / ${checked.toLocaleString()} checked)*`;
   }
 
-  // Build issues section
+  // Build issues section. The counts are about the file that was just uploaded —
+  // what the sender can correct — with the standing backlog named separately so
+  // the two are not read as one number.
   let issuesText = '';
   const invalidMCIDs = (results?.mcnVerdicts?.invalidMCIDs?.length || 0) + (results?.jfmVerdicts?.invalidMCIDs?.length || 0);
   const invalidLanguageIDs = (results?.mcnVerdicts?.invalidLanguageIDs?.length || 0) + (results?.jfmVerdicts?.invalidLanguageIDs?.length || 0);
+  const allTimeMCIDs = results?.mcnVerdicts?.acrossAllClaims?.invalidMCIDs ?? 0;
+  const allTimeLanguages = results?.mcnVerdicts?.acrossAllClaims?.invalidLanguageIDs ?? 0;
   if (invalidMCIDs || invalidLanguageIDs) {
     const issues = [];
     if (invalidMCIDs) issues.push(`  • Invalid MCIDs: ${invalidMCIDs}`);
     if (invalidLanguageIDs) issues.push(`  • Invalid Language IDs: ${invalidLanguageIDs}`);
-    issuesText = `\n\n*Data Quality Issues*\n${issues.join('\n')}`;
+    issuesText = `\n\n*Data Quality Issues in the uploaded verdicts*\n${issues.join('\n')}`;
+  }
+  if (allTimeMCIDs || allTimeLanguages) {
+    issuesText += `\n_Across all claims ever loaded: ${allTimeMCIDs.toLocaleString()} invalid MCIDs, ` +
+      `${allTimeLanguages.toLocaleString()} invalid language ids._`;
   }
 
   const header = stepName

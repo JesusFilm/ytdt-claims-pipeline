@@ -275,7 +275,16 @@ async function handleFileMessage(event) {
 
   const file = event.files[0];
   const step = currentStep(session);
-  if (!step) return;
+  if (!step) {
+    // The session has all it needs and is waiting on Run or Cancel. Dropping
+    // more files used to land here and return silently — nothing ran, nothing
+    // was said, and the files looked ignored. Start again from what was sent.
+    await deleteSession(userId);
+    if (session.promptTs) {
+      await slackUpdate(session.channel, session.promptTs, [], '_Replaced by newer files._');
+    }
+    return handleDroppedFiles(event);
+  }
 
   // Validate it's a CSV
   if (!file.name?.endsWith('.csv') && file.mimetype !== 'text/csv') {

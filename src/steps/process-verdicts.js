@@ -115,37 +115,68 @@ async function processVerdictFile(mysql, filePath, type, context) {
     WHERE c.video_id = v.video_id
   `);
 
-  // Get invalid MCIDs
+  // Invalid ids in the file that was just uploaded — the rows whoever sent it
+  // can actually correct. These used to be read from the whole target table, so
+  // every historical bad id was reported again each month under this run's
+  // "Data Quality Issues".
+  const ignoredMCIDs = process.env.IGNORED_MCID_PATTERNS
+    ? `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',')
+      .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')}'`
+    : '';
+
   const [invalidMCIDs] = await mysql.query(`
-    SELECT v.video_id, v.media_component_id, v.channel_id, v.wave,
-      v.${type === 'mcn' ? 'views' : 'lifetime_view_count'} AS views
-    FROM ${targetTable} v
+    SELECT v.video_id, v.media_component_id, c.channel_id, v.wave,
+      c.${type === 'mcn' ? 'views' : 'lifetime_view_count'} AS views
+    FROM ${tableName} v
+    LEFT JOIN ${targetTable} c ON c.video_id = v.video_id
     WHERE CONVERT(v.media_component_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(media_component_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_component
     )
+    AND v.media_component_id IS NOT NULL
     AND v.media_component_id != '-'
     AND v.media_component_id != ''
-    ${process.env.IGNORED_MCID_PATTERNS ?
-      `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',')
-        .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')}'`
-      : ''}
+    ${ignoredMCIDs}
   `);
 
-  // Get invalid language IDs
+  // wess_language_id is the only id column this view exposes. The warehouse's
+  // own process_verdicts.sql compares against "language_id", which does not
+  // exist here, so MySQL resolves it to the outer table's column and the check
+  // always passes — which is why that script reports none and this reports some.
   const [invalidLanguageIDs] = await mysql.query(`
-    SELECT v.video_id, v.language_id, v.channel_id
-    FROM ${targetTable} v
+    SELECT v.video_id, v.language_id, c.channel_id
+    FROM ${tableName} v
+    LEFT JOIN ${targetTable} c ON c.video_id = v.video_id
     WHERE CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
+    AND v.language_id IS NOT NULL
     AND v.language_id != '-'
     AND v.language_id != ''
+  `);
+
+  // The same questions asked of everything ever loaded. Counted, not listed:
+  // it is a backlog to work through, not something this upload introduced.
+  const [[allClaims]] = await mysql.query(`
+    SELECT
+      (SELECT COUNT(*) FROM ${targetTable} v
+        WHERE CONVERT(v.media_component_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
+          SELECT CONVERT(media_component_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_component)
+        AND v.media_component_id != '-' AND v.media_component_id != '' ${ignoredMCIDs}) AS invalidMCIDs,
+      (SELECT COUNT(*) FROM ${targetTable} v
+        WHERE CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
+          SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language)
+        AND v.language_id != '-' AND v.language_id != '') AS invalidLanguageIDs
   `);
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
     invalidMCIDs,
-    invalidLanguageIDs
+    invalidLanguageIDs,
+    // context, not this upload's doing
+    acrossAllClaims: {
+      invalidMCIDs: allClaims.invalidMCIDs,
+      invalidLanguageIDs: allClaims.invalidLanguageIDs
+    }
   };
 }
 
