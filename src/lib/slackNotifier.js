@@ -75,23 +75,31 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
     shortsText = `\n\n*Shorts Detected (${marked.toLocaleString()} / ${checked.toLocaleString()} checked)*`;
   }
 
-  // Build issues section. The counts are about the file that was just uploaded —
-  // what the sender can correct — with the standing backlog named separately so
-  // the two are not read as one number.
+  // Build issues section. Counts are about the file that was just uploaded —
+  // what the sender can correct — and say both how many ids are wrong and how
+  // many rows they cost, because a handful of ids over thousands of rows is a
+  // different job from one bad id per row.
   let issuesText = '';
-  const invalidMCIDs = (results?.mcnVerdicts?.invalidMCIDs?.length || 0) + (results?.jfmVerdicts?.invalidMCIDs?.length || 0);
-  const invalidLanguageIDs = (results?.mcnVerdicts?.invalidLanguageIDs?.length || 0) + (results?.jfmVerdicts?.invalidLanguageIDs?.length || 0);
+  const summaryOf = key => ['mcnVerdicts', 'jfmVerdicts'].reduce((acc, type) => {
+    const part = results?.[type]?.invalidSummary?.[key];
+    return part ? { distinct: acc.distinct + part.distinct, rows: acc.rows + part.rows } : acc;
+  }, { distinct: 0, rows: 0 });
+
+  const mcids = summaryOf('mcids');
+  const languages = summaryOf('languages');
+  const line = (label, s) => `  • ${label}: ${s.distinct.toLocaleString()} across ${s.rows.toLocaleString()} row${s.rows === 1 ? '' : 's'}`;
   const allTimeMCIDs = results?.mcnVerdicts?.acrossAllClaims?.invalidMCIDs ?? 0;
   const allTimeLanguages = results?.mcnVerdicts?.acrossAllClaims?.invalidLanguageIDs ?? 0;
-  if (invalidMCIDs || invalidLanguageIDs) {
+
+  if (mcids.rows || languages.rows) {
     const issues = [];
-    if (invalidMCIDs) issues.push(`  • Invalid MCIDs: ${invalidMCIDs}`);
-    if (invalidLanguageIDs) issues.push(`  • Invalid Language IDs: ${invalidLanguageIDs}`);
+    if (mcids.rows) issues.push(line('Invalid MCIDs', mcids));
+    if (languages.rows) issues.push(line('Invalid language ids', languages));
     issuesText = `\n\n*Data Quality Issues in the uploaded verdicts*\n${issues.join('\n')}`;
   }
   if (allTimeMCIDs || allTimeLanguages) {
-    issuesText += `\n_Across all claims ever loaded: ${allTimeMCIDs.toLocaleString()} invalid MCIDs, ` +
-      `${allTimeLanguages.toLocaleString()} invalid language ids._`;
+    issuesText += `\n_Across all claims ever loaded: ${allTimeMCIDs.toLocaleString()} rows with an invalid MCID, ` +
+      `${allTimeLanguages.toLocaleString()} with an invalid language id._`;
   }
 
   const header = stepName
