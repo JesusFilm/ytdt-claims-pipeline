@@ -172,11 +172,37 @@ async function processVerdictFile(mysql, filePath, type, context) {
     processed: cleaned.length,
     invalidMCIDs,
     invalidLanguageIDs,
+    // Two different questions: how many ids to fix, and how many rows they
+    // affect. A handful of ids over many rows is a typo repeated; one id per
+    // row is a wrong column, and only showing rows hides which you have.
+    invalidSummary: {
+      mcids: summarise(invalidMCIDs, 'media_component_id'),
+      languages: summarise(invalidLanguageIDs, 'language_id')
+    },
     // context, not this upload's doing
     acrossAllClaims: {
       invalidMCIDs: allClaims.invalidMCIDs,
       invalidLanguageIDs: allClaims.invalidLanguageIDs
     }
+  };
+}
+
+// Group bad rows by the id that is wrong, worst first. Done here rather than in
+// SQL: the rows are already fetched for the download, and the database is
+// production — this asks it nothing more.
+function summarise(rows, column, examplesPerId = 3) {
+  const byId = new Map();
+  for (const row of rows) {
+    const id = row[column];
+    if (!byId.has(id)) byId.set(id, { id, rows: 0, examples: [] });
+    const entry = byId.get(id);
+    entry.rows += 1;
+    if (entry.examples.length < examplesPerId && row.video_id) entry.examples.push(row.video_id);
+  }
+  return {
+    distinct: byId.size,
+    rows: rows.length,
+    byId: [...byId.values()].sort((a, b) => b.rows - a.rows)
   };
 }
 

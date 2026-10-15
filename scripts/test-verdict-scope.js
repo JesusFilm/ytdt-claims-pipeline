@@ -96,6 +96,54 @@ test('the queries it actually runs are scoped to the upload', async () => {
 });
 
 
+test('bad ids are grouped, worst first, with examples to look at', async () => {
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verdicts-'));
+  const file = path.join(dir, 'mcn.csv');
+  fs.writeFileSync(file,
+    'video_id,verdict,media_component_id,language_id,wave,no_code,is_edited\n' +
+    'abc123,Y,1_jf-0-0,529,262,,0\n');
+
+  // three rows share one bad id, one row has another: 2 ids, 4 rows
+  const badMCIDs = [
+    { video_id: 'v1', media_component_id: '1_jf61??-0-0' },
+    { video_id: 'v2', media_component_id: '1_jf61??-0-0' },
+    { video_id: 'v3', media_component_id: '1_jf61??-0-0' },
+    { video_id: 'v4', media_component_id: 'MC005' },
+  ];
+  let select = 0;
+  const mysql = {
+    escape: v => `'${v}'`,
+    query: async sql => {
+      if (!String(sql).trim().startsWith('SELECT')) return [[]];
+      select += 1;
+      if (/SELECT\s*\(SELECT COUNT/i.test(sql)) return [[{ invalidMCIDs: 1247, invalidLanguageIDs: 10106 }]];
+      return [select === 1 ? badMCIDs : []];
+    }
+  };
+  const context = { files: { mcnVerdicts: file }, connections: { mysql }, outputs: {} };
+  await processVerdicts(context);
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const { mcids, languages } = context.outputs.mcnVerdicts.invalidSummary;
+  assert.strictEqual(mcids.distinct, 2, 'two ids to fix');
+  assert.strictEqual(mcids.rows, 4, 'four rows affected');
+  assert.strictEqual(mcids.byId[0].id, '1_jf61??-0-0', 'worst first');
+  assert.strictEqual(mcids.byId[0].rows, 3);
+  assert.deepStrictEqual(mcids.byId[0].examples, ['v1', 'v2', 'v3']);
+  assert.deepStrictEqual(languages, { distinct: 0, rows: 0, byId: [] });
+
+  // the raw rows stay available for the download
+  assert.strictEqual(context.outputs.mcnVerdicts.invalidMCIDs.length, 4);
+});
+
+test('the Slack line says ids and rows, not one number', () => {
+  const notifier = fs.readFileSync(path.join(__dirname, '..', 'src/lib/slackNotifier.js'), 'utf8');
+  assert.match(notifier, /across \$\{s\.rows/);
+  assert.match(notifier, /invalidSummary/);
+});
+
+
 let failed = 0;
 (async () => {
   for (const [name, fn] of tests) {
