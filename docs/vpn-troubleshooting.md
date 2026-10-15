@@ -33,6 +33,43 @@ route 10.142.0.0 255.255.240.0 net_gateway     # exclude GCP VPC from VPN
 
 **`route 10.142.0.0 255.255.240.0 net_gateway`** — full-tunnel hijacks everything, including MongoDB at `10.142.0.62` (GCP VPC internal). `net_gateway` keeps GCP VPC traffic on `ens4`, away from the tunnel.
 
+## Running a script over the VPN by hand
+
+The service runs as root, so its tunnel comes up. An SSH session does not:
+`openvpn` needs root to create `tun0`, and a one-off script started as your
+own user fails with
+
+```
+ERROR: Cannot ioctl TUNSETIFF tun: Operation not permitted (errno=1)
+```
+
+in `logs/vpn.log`. `connect-vpn.js` prints **"VPN connection established"**
+after a five-second timer whether or not the tunnel came up, so the first
+thing you see is that cheerful line, followed a minute later by
+`MySQL error details: ETIMEDOUT`. The VPN never connected.
+
+Run one-off scripts as root, with the service's own environment:
+
+```bash
+gcloud compute ssh ytdt-claims --zone=us-east1-b --command="sudo bash -c '
+  set -a; source /etc/ytdt-claims-pipeline/.env; set +a
+  cd /opt/ytdt-claims-pipeline && node my-script.js
+'"
+```
+
+Put the script inside `/opt/ytdt-claims-pipeline` rather than `/tmp` — node
+resolves `require` from the script's own directory, and from `/tmp` it finds
+none of the app's modules.
+
+For anything that only reads, say so to the server as well:
+
+```js
+await mysql.query('SET SESSION TRANSACTION READ ONLY');
+```
+
+The database is production. Leave the script behind only as long as you need
+it, and delete it when you are done.
+
 ## Diagnostic commands
 
 Live tunnel + routes:
