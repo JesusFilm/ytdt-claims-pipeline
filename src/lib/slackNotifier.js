@@ -88,8 +88,12 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   const mcids = summaryOf('mcids');
   const languages = summaryOf('languages');
   const line = (label, s) => `  • ${label}: ${s.distinct.toLocaleString()} across ${s.rows.toLocaleString()} row${s.rows === 1 ? '' : 's'}`;
-  const allTimeMCIDs = results?.mcnVerdicts?.acrossAllClaims?.invalidMCIDs ?? 0;
-  const allTimeLanguages = results?.mcnVerdicts?.acrossAllClaims?.invalidLanguageIDs ?? 0;
+  // Both tables, not just the MCN one: a JFM-only run used to report a backlog
+  // of zero, which reads as "nothing to clean up" and is not true.
+  const backlog = key => ['mcnVerdicts', 'jfmVerdicts']
+    .reduce((total, type) => total + (results?.[type]?.acrossAllClaims?.[key] ?? 0), 0);
+  const allTimeMCIDs = backlog('invalidMCIDs');
+  const allTimeLanguages = backlog('invalidLanguageIDs');
 
   if (mcids.rows || languages.rows) {
     const issues = [];
@@ -99,7 +103,7 @@ async function sendPipelineNotification(runId, status, error = null, duration = 
   }
   if (allTimeMCIDs || allTimeLanguages) {
     issuesText += `\n_Across all claims ever loaded: ${allTimeMCIDs.toLocaleString()} rows with an invalid MCID, ` +
-      `${allTimeLanguages.toLocaleString()} with an invalid language id._`;
+      `${allTimeLanguages.toLocaleString()} with an invalid language id — the full list is in the console and the run's Drive folder._`;
   }
 
   const header = stepName

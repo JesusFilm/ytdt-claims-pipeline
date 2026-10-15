@@ -25,7 +25,7 @@ test('invalid ids are looked for in the uploaded file, not the whole table', () 
   assert.doesNotMatch(mcid, /FROM \$\{targetTable\} v\s*\n\s*WHERE CONVERT\(v\.media_component_id/,
     'no longer scans every claim ever loaded');
 
-  const lang = source.slice(source.indexOf('const [invalidLanguageIDs]'), source.indexOf('const [[allClaims]]'));
+  const lang = source.slice(source.indexOf('const [invalidLanguageIDs]'), source.indexOf('const backlog ='));
   assert.match(lang, /FROM \$\{tableName\} v/);
 });
 
@@ -33,16 +33,18 @@ test('the language check uses the column the view actually has', () => {
   // process_verdicts.sql in jfp_yt_dw compares against "language_id", which
   // bi_view_media_language does not expose: MySQL resolves it to the outer
   // column and the check silently passes for every row
-  const lang = source.slice(source.indexOf('const [invalidLanguageIDs]'), source.indexOf('const [[allClaims]]'));
+  const lang = source.slice(source.indexOf('const [invalidLanguageIDs]'), source.indexOf('const backlog ='));
   assert.match(lang, /wess_language_id/);
   assert.doesNotMatch(lang, /SELECT CONVERT\(language_id USING/);
 });
 
-test('the all-time figures are kept, as counts rather than rows', () => {
+test('the whole-table backlog is listed, not just counted', () => {
   assert.match(source, /acrossAllClaims/);
-  const all = source.slice(source.indexOf('const [[allClaims]]'), source.indexOf('context.outputs'));
-  assert.match(all, /COUNT\(\*\)/);
-  assert.match(all, /FROM \$\{targetTable\}/, 'still asks the whole-table question');
+  const backlog = source.slice(source.indexOf('async function writeBacklog'), source.indexOf('// Group bad rows'));
+  assert.strictEqual((backlog.match(/FROM \$\{targetTable\} v/g) || []).length, 2,
+    'still asks the whole-table question, for both ids');
+  assert.match(backlog, /invalid-mcids-all-claims-\$\{type\}\.csv/, 'writes a file to download');
+  assert.match(backlog, /invalid-language-ids-all-claims-\$\{type\}\.csv/);
 });
 
 test('blank and placeholder ids are not reported as invalid', () => {
@@ -53,10 +55,10 @@ test('blank and placeholder ids are not reported as invalid', () => {
 });
 
 test('ignored MCID patterns still apply, to both scopes', () => {
-  const body = source.slice(source.indexOf('const ignoredMCIDs'), source.indexOf('context.outputs'));
-  assert.strictEqual((body.match(/\$\{ignoredMCIDs\}/g) || []).length, 2);
+  // once for the uploaded file, once for the backlog
+  assert.strictEqual((source.match(/\$\{ignoredMCIDs\}/g) || []).length, 2);
+  assert.match(source, /writeBacklog\(mysql, type, targetTable, ignoredMCIDs, context\)/);
 });
-
 
 // Run it for real against a fake connection, so the assertions are about the
 // SQL that executes rather than the text of the file.
@@ -73,11 +75,15 @@ test('the queries it actually runs are scoped to the upload', async () => {
     escape: value => (value === null || value === undefined ? 'NULL' : `'${String(value)}'`),
     query: async sql => {
       statements.push(String(sql).replace(/\s+/g, ' ').trim());
-      if (/SELECT\s*\(SELECT COUNT/i.test(sql)) return [[{ invalidMCIDs: 1247, invalidLanguageIDs: 10106 }]];
       return [[]];
     }
   };
-  const context = { files: { mcnVerdicts: file }, connections: { mysql }, outputs: {} };
+  const context = {
+    files: { mcnVerdicts: file },
+    connections: { mysql },
+    outputs: {},
+    options: { exportDir: path.join(dir, 'exports') }
+  };
   await processVerdicts(context);
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -87,11 +93,11 @@ test('the queries it actually runs are scoped to the upload', async () => {
   assert.ok(perFile.every(s => /LEFT JOIN youtube_mcn_claims c/.test(s)),
     'joined only to fetch channel and views for the report');
 
-  const allTime = selects.find(s => /SELECT \(SELECT COUNT/.test(s));
-  assert.ok(allTime && /FROM youtube_mcn_claims v/.test(allTime));
+  const allTime = selects.filter(s => /FROM youtube_mcn_claims v WHERE/.test(s));
+  assert.strictEqual(allTime.length, 2, 'the backlog is still read from the whole table');
 
   assert.deepStrictEqual(context.outputs.mcnVerdicts.acrossAllClaims,
-    { invalidMCIDs: 1247, invalidLanguageIDs: 10106 });
+    { invalidMCIDs: 0, invalidLanguageIDs: 0, files: { invalidMCIDs: null, invalidLanguageIDs: null } });
   assert.strictEqual(context.outputs.mcnVerdicts.processed, 1);
 });
 
@@ -117,11 +123,15 @@ test('bad ids are grouped, worst first, with examples to look at', async () => {
     query: async sql => {
       if (!String(sql).trim().startsWith('SELECT')) return [[]];
       select += 1;
-      if (/SELECT\s*\(SELECT COUNT/i.test(sql)) return [[{ invalidMCIDs: 1247, invalidLanguageIDs: 10106 }]];
       return [select === 1 ? badMCIDs : []];
     }
   };
-  const context = { files: { mcnVerdicts: file }, connections: { mysql }, outputs: {} };
+  const context = {
+    files: { mcnVerdicts: file },
+    connections: { mysql },
+    outputs: {},
+    options: { exportDir: path.join(dir, 'exports') }
+  };
   await processVerdicts(context);
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -141,6 +151,57 @@ test('the Slack line says ids and rows, not one number', () => {
   const notifier = fs.readFileSync(path.join(__dirname, '..', 'src/lib/slackNotifier.js'), 'utf8');
   assert.match(notifier, /across \$\{s\.rows/);
   assert.match(notifier, /invalidSummary/);
+});
+
+
+test('the backlog is written as a file, in the same shape as the other downloads', async () => {
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verdicts-'));
+  const file = path.join(dir, 'mcn.csv');
+  fs.writeFileSync(file,
+    'video_id,verdict,media_component_id,language_id,wave,no_code,is_edited\n' +
+    'abc123,Y,1_jf-0-0,529,262,,0\n');
+
+  // 1st select: bad MCIDs in the upload, 2nd: bad languages in the upload,
+  // 3rd and 4th: the same two questions asked of the whole table
+  const backlogLanguages = [
+    { video_id: 'old1', language_id: '139124', channel_id: 'UC1' },
+    { video_id: 'old2', language_id: '22197', channel_id: 'UC2' }
+  ];
+  let select = 0;
+  const mysql = {
+    escape: v => `'${v}'`,
+    query: async sql => {
+      if (!String(sql).trim().startsWith('SELECT')) return [[]];
+      select += 1;
+      return [select === 4 ? backlogLanguages : []];
+    }
+  };
+  const exportDir = path.join(dir, 'exports');
+  const context = {
+    files: { mcnVerdicts: file },
+    connections: { mysql },
+    outputs: {},
+    options: { exportDir }
+  };
+  await processVerdicts(context);
+
+  const all = context.outputs.mcnVerdicts.acrossAllClaims;
+  assert.strictEqual(all.invalidLanguageIDs, 2, 'the backlog is counted');
+  assert.strictEqual(all.files.invalidLanguageIDs, 'invalid-language-ids-all-claims-mcn.csv');
+  assert.strictEqual(all.files.invalidMCIDs, null, 'no file when there is nothing in it');
+
+  const written = fs.readFileSync(path.join(exportDir, all.files.invalidLanguageIDs), 'utf8').trim().split('\n');
+  assert.strictEqual(written[0], '"video_id","language_id","channel_id"', 'same columns as a claims export');
+  assert.strictEqual(written.length, 3, 'one line per row');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('the Slack backlog covers both tables, not just MCN', () => {
+  const notifier = fs.readFileSync(path.join(__dirname, '..', 'src/lib/slackNotifier.js'), 'utf8');
+  const line = notifier.slice(notifier.indexOf('const backlog ='), notifier.indexOf('if (mcids.rows'));
+  assert.match(line, /'mcnVerdicts', 'jfmVerdicts'/, 'a JFM-only run must not report a backlog of zero');
+  assert.doesNotMatch(line, /results\?\.mcnVerdicts\?\.acrossAllClaims/);
 });
 
 

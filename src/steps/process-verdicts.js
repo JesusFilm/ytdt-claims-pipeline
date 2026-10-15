@@ -2,7 +2,8 @@ const fs = require('fs').promises;
 const path = require('path');
 const { format } = require('date-fns');
 const csv = require('csv-parse/sync');
-const { cleanRow } = require('../lib/utils');
+const { stringify } = require('csv-stringify/sync');
+const { cleanRow, resolveRunExportDir } = require('../lib/utils');
 
 
 async function processVerdicts(context) {
@@ -154,19 +155,10 @@ async function processVerdictFile(mysql, filePath, type, context) {
     AND v.language_id != ''
   `);
 
-  // The same questions asked of everything ever loaded. Counted, not listed:
-  // it is a backlog to work through, not something this upload introduced.
-  const [[allClaims]] = await mysql.query(`
-    SELECT
-      (SELECT COUNT(*) FROM ${targetTable} v
-        WHERE CONVERT(v.media_component_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-          SELECT CONVERT(media_component_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_component)
-        AND v.media_component_id != '-' AND v.media_component_id != '' ${ignoredMCIDs}) AS invalidMCIDs,
-      (SELECT COUNT(*) FROM ${targetTable} v
-        WHERE CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-          SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language)
-        AND v.language_id != '-' AND v.language_id != '') AS invalidLanguageIDs
-  `);
+  // The same questions asked of everything ever loaded. This is the backlog —
+  // what nobody has got to yet — and it is listed, not just counted, so it can
+  // be worked through instead of only watched.
+  const backlog = await writeBacklog(mysql, type, targetTable, ignoredMCIDs, context);
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
@@ -179,10 +171,58 @@ async function processVerdictFile(mysql, filePath, type, context) {
       mcids: summarise(invalidMCIDs, 'media_component_id'),
       languages: summarise(invalidLanguageIDs, 'language_id')
     },
-    // context, not this upload's doing
-    acrossAllClaims: {
-      invalidMCIDs: allClaims.invalidMCIDs,
-      invalidLanguageIDs: allClaims.invalidLanguageIDs
+    // context, not this upload's doing: every bad id still sitting in the
+    // table, with the file to download it from.
+    acrossAllClaims: backlog
+  };
+}
+
+// Everything in the claims table that still has a bad id, written beside the
+// run's other exports so the console and Drive can hand it over. Two queries
+// against production, the same two that used to be counted.
+async function writeBacklog(mysql, type, targetTable, ignoredMCIDs, context) {
+  const views = type === 'mcn' ? 'v.views' : 'v.lifetime_view_count';
+
+  const [mcidRows] = await mysql.query(`
+    SELECT v.video_id, v.media_component_id, v.channel_id, v.wave, ${views} AS views
+    FROM ${targetTable} v
+    WHERE CONVERT(v.media_component_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
+      SELECT CONVERT(media_component_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_component)
+    AND v.media_component_id IS NOT NULL
+    AND v.media_component_id != '-' AND v.media_component_id != '' ${ignoredMCIDs}
+  `);
+
+  const [languageRows] = await mysql.query(`
+    SELECT v.video_id, v.language_id, v.channel_id
+    FROM ${targetTable} v
+    WHERE CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
+      SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language)
+    AND v.language_id IS NOT NULL
+    AND v.language_id != '-' AND v.language_id != ''
+  `);
+
+  const exportDir = context.options?.exportDir || resolveRunExportDir(context.startTime);
+  await fs.mkdir(exportDir, { recursive: true });
+
+  // Same shape as the per-upload downloads, so one file does not read
+  // differently from the other.
+  const write = async (rows, name) => {
+    if (!rows.length) return null;
+    const plain = rows.map(row => {
+      const out = {};
+      for (const [key, value] of Object.entries(row)) out[key] = value == null ? '' : String(value);
+      return out;
+    });
+    await fs.writeFile(path.join(exportDir, name), stringify(plain, { header: true, quoted: true }));
+    return name;
+  };
+
+  return {
+    invalidMCIDs: mcidRows.length,
+    invalidLanguageIDs: languageRows.length,
+    files: {
+      invalidMCIDs: await write(mcidRows, `invalid-mcids-all-claims-${type}.csv`),
+      invalidLanguageIDs: await write(languageRows, `invalid-language-ids-all-claims-${type}.csv`)
     }
   };
 }
