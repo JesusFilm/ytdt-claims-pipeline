@@ -70,6 +70,71 @@ await mysql.query('SET SESSION TRANSACTION READ ONLY');
 The database is production. Leave the script behind only as long as you need
 it, and delete it when you are done.
 
+### The tunnel will cut the SSH session that started it
+
+`redirect-gateway def1` is a full tunnel: the moment `connect-vpn.js` brings
+`tun0` up, the VM's default route moves off `ens4` and your own SSH connection
+dies mid-command —
+
+```
+Spawning OpenVPN client directly
+Read from remote host 35.227.61.101: Connection reset by peer
+client_loop: send disconnect: Broken pipe
+```
+
+Your script dies with the session, but `openvpn` does not. It is left orphaned
+holding the routes, which means:
+
+* the VM stops answering SSH, **and `--tunnel-through-iap` too** — the return
+  traffic goes into the tunnel either way;
+* the console shows "Failed to fetch / System offline" because the pipeline API
+  is no longer reachable from outside, even though `systemctl` still reports the
+  service active and the instance still reports `RUNNING`.
+
+There is no way back in. The only fix is a hard power cycle:
+
+```bash
+gcloud compute instances reset ytdt-claims --zone=us-east1-b
+```
+
+Use `reset`, not `stop` + `start`: the external IP is not reserved, so
+stop/start hands the VM a new one and the console's `NEXT_PUBLIC_API_URL`
+(`https://35.227.61.101.nip.io`) stops resolving to it. After the reset,
+confirm the tunnel is really gone before doing anything else:
+
+```bash
+gcloud compute ssh ytdt-claims --zone=us-east1-b --command="
+  pgrep -af openvpn || echo 'no openvpn'
+  sudo systemctl is-active ytdt-claims-pipeline
+  ip route | head -3            # default must be via ens4, no tun0
+"
+curl -s https://35.227.61.101.nip.io/api/health
+```
+
+To avoid it in the first place, detach the script from the SSH session and
+always tear the tunnel down yourself:
+
+```bash
+gcloud compute ssh ytdt-claims --zone=us-east1-b --command="sudo bash -c '
+  set -a; source /etc/ytdt-claims-pipeline/.env; set +a
+  cd /opt/ytdt-claims-pipeline
+  setsid nohup node my-script.js > /tmp/my-script.log 2>&1 < /dev/null &
+'"
+# reconnect and read /tmp/my-script.log; the tunnel drop no longer kills it
+```
+
+```js
+try {
+  // ... queries
+} finally {
+  await mysql.end();
+  process.exit(0);   // kills the openvpn child connect-vpn.js spawned
+}
+```
+
+A pipeline run tears its own tunnel down when it finishes. A hand-run script
+has to do the same, or it strands the VM.
+
 ## Diagnostic commands
 
 Live tunnel + routes:
