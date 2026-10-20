@@ -137,6 +137,7 @@ create_vm() {
     sed -i "" "s#__SKIP_VPN__#${SKIP_VPN:-false}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__FRONTEND_URL__#${FRONTEND_URL}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__MYSQL_HOST__#${MYSQL_HOST}#g" "$TEMP_CLOUD_CONFIG"
+    sed -i "" "s#__MYSQL_IP__#${MYSQL_IP}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__MYSQL_USER__#${MYSQL_USER}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__MYSQL_PASSWORD__#${MYSQL_PASSWORD}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__MYSQL_DATABASE__#${MYSQL_DATABASE:-jfp_analytics_prod}#g" "$TEMP_CLOUD_CONFIG"

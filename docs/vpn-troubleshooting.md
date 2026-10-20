@@ -15,6 +15,12 @@ gcloud compute ssh ytdt-claims --zone=us-east1-b --command="
 
 No service restart needed — next pipeline run picks it up. Code spawns openvpn fresh each run.
 
+**A rotated `.ovpn` loses the split-tunnel lines.** The provisioner appends
+`pull-filter ignore redirect-gateway` and `route <mysql-ip> 255.255.255.255
+vpn_gateway`; a fresh file from the provider has neither. Re-add them, or the
+pushed `redirect-gateway def1` routes the whole VM through the tunnel and it
+drops off the network. See [Applying a new endpoint](#applying-a-new-endpoint).
+
 ## Required directives in client.ovpn
 
 The Arclight VPN server pushes `redirect-gateway def1` (full tunnel) and uses `comp-lzo` compression. A bare `.ovpn` from the provider will need these additions to work on the GCP VM:
@@ -134,6 +140,79 @@ try {
 
 A pipeline run tears its own tunnel down when it finishes. A hand-run script
 has to do the same, or it strands the VM.
+
+## The MySQL endpoint moved
+
+Symptom: every run fails on the VPN step with
+
+```
+getaddrinfo ENOTFOUND <something>.us-east-1.rds.amazonaws.com
+```
+
+and DataGrip on a laptop says `Unknown host ... nodename nor servname provided`.
+The tunnel is fine — this is name resolution, and it fails before any
+connection to MySQL is attempted.
+
+Two things make this confusing:
+
+* The endpoint is **split-horizon**. Public DNS returns a CNAME and no A
+  record, so the name never resolves outside the Arclight VPC.
+* `client.ovpn` has no `--up` script, so openvpn **parses and discards** the
+  `dhcp-option DNS 169.254.169.253` the server pushes — it only logs
+  `OPTIONS IMPORT: --dhcp-option options modified`. Nothing on the VM ever asks
+  the AWS resolver. The provisioner works around this by pinning the IP in
+  `/etc/hosts`, so a lost or stale pin looks exactly like a dead database.
+
+### Telling "name is gone" from "we aren't asking the right resolver"
+
+With the tunnel up, query the AWS resolver directly and include a control:
+
+```js
+const r = new (require('dns').promises.Resolver)();
+r.setServers(['169.254.169.253']);
+await r.resolve4('amazon.com');        // control — proves the resolver answers
+await r.resolve4(process.env.MYSQL_HOST);
+```
+
+If the control resolves and the endpoint gives `ENOTFOUND`, the resolver is
+healthy and the endpoint genuinely no longer exists — ask whoever runs the
+warehouse for the current one. If neither answers, the route to
+`169.254.169.253` is missing and the tunnel is the problem.
+
+### Applying a new endpoint
+
+On 19 Oct 2026 the database moved to
+`youtube-analytics-mysql.c2yfzvruid58.us-east-1.rds.amazonaws.com`
+(private IP `10.0.5.178`); credentials were unchanged. Three things need
+updating together, or the run fails in a different place each time:
+
+```bash
+gcloud compute ssh ytdt-claims --zone=us-east1-b --command='set -e
+NEWHOST=<new-endpoint>
+NEWIP=<new-private-ip>
+sudo cp /etc/ytdt-claims-pipeline/.env /etc/ytdt-claims-pipeline/.env.bak-$(date +%Y%m%d%H%M%S)
+sudo sed -i "s|^MYSQL_HOST=.*|MYSQL_HOST=$NEWHOST|" /etc/ytdt-claims-pipeline/.env
+sudo sed -i "/rds.amazonaws.com/d" /etc/hosts
+echo "$NEWIP $NEWHOST" | sudo tee -a /etc/hosts >/dev/null
+sudo sed -i "/^pull-filter ignore redirect-gateway/d;/255.255.255.255 vpn_gateway/d" \
+  /opt/ytdt-claims-pipeline/config/vpn/client.ovpn
+printf "pull-filter ignore redirect-gateway\nroute %s 255.255.255.255 vpn_gateway\n" "$NEWIP" \
+  | sudo tee -a /opt/ytdt-claims-pipeline/config/vpn/client.ovpn >/dev/null
+sudo systemctl restart ytdt-claims-pipeline'
+```
+
+1. `MYSQL_HOST` — what the app connects to.
+2. The `/etc/hosts` pin — the only way the app can resolve that name.
+3. The two `client.ovpn` lines — **re-add these after every credential
+   rotation.** The provisioner appends them; a fresh `.ovpn` dropped in by hand
+   does not have them, and without `pull-filter ignore redirect-gateway` the
+   pushed `redirect-gateway def1` takes the entire VM off the network for as
+   long as the tunnel is up.
+
+Both the pin and the route hard-code an IP, so they have to be redone whenever
+RDS moves. `infrastructure/gcp/cloud-config.yaml` does the same at provision
+time from `MYSQL_IP` in `.env.production`, and now fails loudly instead of
+writing an empty route when it is missing.
 
 ## Diagnostic commands
 
