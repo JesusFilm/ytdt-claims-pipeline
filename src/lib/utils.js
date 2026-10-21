@@ -111,3 +111,16 @@ module.exports.formatTimestamp = (value, timeZone = process.env.DISPLAY_TIMEZONE
     timeZoneName: 'short'
   });
 };
+
+/**
+ * Turn a comma-separated ignore list from the environment into one REGEXP
+ * alternation, with every regexp metacharacter in the patterns escaped so a
+ * literal `??` stays literal. The doubled backslash is deliberate: the result
+ * is interpolated into SQL, where MySQL eats one level of escaping itself.
+ */
+module.exports.toRegexp = (patterns) => patterns
+  .split(',')
+  .map(p => p.trim())
+  .filter(Boolean)
+  .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&'))
+  .join('|');
