@@ -212,10 +212,14 @@ write_files:
     echo "GOOGLE_REDIRECT_URI=${PROTOCOL}://${EXTERNAL_IP}.nip.io/api/auth/google/callback" >> /etc/ytdt-claims-pipeline/.env
 
     echo "Configuring VPN to only route MySQL traffic..."
-    # The RDS endpoint is split-horizon: public DNS has no A record for it, and
-    # openvpn never applies the DNS server the VPN pushes, so getent cannot find
-    # it here. Pass MYSQL_IP explicitly (deploy.sh), and only fall back to a
-    # lookup for hosts that do resolve publicly.
+    # The RDS endpoint is split-horizon, but not in the way that would make a
+    # lookup here safe: public DNS answers with a PUBLIC address (a CNAME to an
+    # ec2-* name), while inside the VPC the same name is the private one we
+    # need. openvpn also never applies the DNS server the VPN pushes, so nothing
+    # on this VM ever asks the AWS resolver. A getent here would therefore
+    # succeed and pin the wrong IP — worse than failing. Pass MYSQL_IP
+    # explicitly (deploy.sh); the fallback is only for a host whose public
+    # answer is the right one.
     MYSQL_IP="__MYSQL_IP__"
     if [ -z "$MYSQL_IP" ]; then
       MYSQL_IP=$(getent hosts "__MYSQL_HOST__" | awk '{ print $1 }')
@@ -226,7 +230,8 @@ write_files:
       exit 1
     fi
 
-    # Without the pin the app cannot resolve the endpoint at all; without the
+    # Without the pin the app resolves the endpoint to its public address, which
+    # is not reachable over the tunnel's routes; without the
     # pull-filter, redirect-gateway takes the whole VM off the network whenever
     # the tunnel is up.
     sed -i "/ __MYSQL_HOST__\$/d" /etc/hosts

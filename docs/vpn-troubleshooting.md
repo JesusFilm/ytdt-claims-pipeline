@@ -35,7 +35,14 @@ route 10.142.0.0 255.255.240.0 net_gateway     # exclude GCP VPC from VPN
 
 **`comp-lzo`** — server-side has it enabled. Without it locally, the tunnel comes up but `write to TUN/TAP : Invalid argument (code=22)` errors flood `logs/vpn.log` and packets get dropped.
 
-**`redirect-gateway def1`** — RDS host is a public AWS hostname (`*.rds.amazonaws.com`) resolving to a public IP outside the pushed `10.0.0.0/16` route. Without full-tunnel, MySQL traffic exits via the local gateway and bypasses the VPN entirely → connection times out.
+**`redirect-gateway def1`** — this is the original reasoning: the RDS host is a public AWS hostname (`*.rds.amazonaws.com`) resolving to a public IP outside the pushed `10.0.0.0/16` route, so without full-tunnel MySQL traffic exits via the local gateway and bypasses the VPN entirely → connection times out.
+
+That is no longer how the VM is set up, and it should not be. The `/etc/hosts`
+pin makes the app connect to the **private** `10.0.5.x` address, which is
+already inside the pushed route, so a full tunnel buys nothing and costs the VM
+its network (see [below](#the-tunnel-will-cut-the-ssh-session-that-started-it)).
+The provisioner instead appends `pull-filter ignore redirect-gateway` and a
+single host route. Do not re-add `redirect-gateway def1`.
 
 **`route 10.142.0.0 255.255.240.0 net_gateway`** — full-tunnel hijacks everything, including MongoDB at `10.142.0.62` (GCP VPC internal). `net_gateway` keeps GCP VPC traffic on `ens4`, away from the tunnel.
 
@@ -155,8 +162,15 @@ connection to MySQL is attempted.
 
 Two things make this confusing:
 
-* The endpoint is **split-horizon**. Public DNS returns a CNAME and no A
-  record, so the name never resolves outside the Arclight VPC.
+* The endpoint is **split-horizon**, which is more confusing than a name that
+  simply does not resolve. Public DNS *does* answer — with a CNAME to an
+  `ec2-*.compute-1.amazonaws.com` name and a **public** address. Inside the VPC
+  the same name gives the private `10.0.5.x` address, and that is the only one
+  reachable over the tunnel. A lookup that succeeds is therefore not proof of
+  anything; check *which* address came back.
+
+  `getaddrinfo ENOTFOUND` means the endpoint is genuinely gone — that is what
+  the *old* endpoint does, because its own CNAME target no longer exists.
 * `client.ovpn` has no `--up` script, so openvpn **parses and discards** the
   `dhcp-option DNS 169.254.169.253` the server pushes — it only logs
   `OPTIONS IMPORT: --dhcp-option options modified`. Nothing on the VM ever asks
@@ -164,6 +178,12 @@ Two things make this confusing:
   `/etc/hosts`, so a lost or stale pin looks exactly like a dead database.
 
 ### Telling "name is gone" from "we aren't asking the right resolver"
+
+**`getent`, `getaddrinfo` and `dns.promises.resolve4()` cannot answer this
+question.** All three go through the systemd-resolved stub at `127.0.0.53`,
+which reads `/etc/hosts` first — so they hand back the pin the provisioner
+wrote and look exactly like a successful VPC lookup. The test is circular. Only
+an explicit resolver reaches a real upstream:
 
 With the tunnel up, query the AWS resolver directly and include a control:
 
