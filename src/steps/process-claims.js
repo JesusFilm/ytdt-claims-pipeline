@@ -1,7 +1,7 @@
 const fs = require('fs');
 const csv = require('csv-parse');
 const { format } = require('date-fns');
-const { cleanRow } = require('../lib/utils');
+const { cleanRow, toRegexp } = require('../lib/utils');
 
 
 async function processClaims(context, claimsSource) {
@@ -39,6 +39,20 @@ async function processClaims(context, claimsSource) {
     AND video_id != ''
   `);
 
+  // Rows nobody wants reported: placeholder ids (IGNORED_MCID_PATTERNS) and
+  // test channels (IGNORED_CHANNEL_PATTERNS). The channel half goes on both
+  // checks; the mcid half only on the media_component_id one, since a
+  // placeholder mcid is no reason to stop reporting a bad language id.
+  //
+  // Both are NULL-safe on purpose — `NULL NOT REGEXP '...'` is NULL, not true,
+  // so an unguarded clause silently drops every row whose column is empty.
+  const ignoreChannel = process.env.IGNORED_CHANNEL_PATTERNS
+    ? `AND (v.channel_id IS NULL OR v.channel_id NOT REGEXP '${toRegexp(process.env.IGNORED_CHANNEL_PATTERNS)}')`
+    : '';
+  const ignoreMCID = process.env.IGNORED_MCID_PATTERNS
+    ? `AND (v.media_component_id IS NULL OR v.media_component_id NOT REGEXP '${toRegexp(process.env.IGNORED_MCID_PATTERNS)}')`
+    : '';
+
   // Validate youtube_mcn_claims table for invalid media_component_id
   const [invalidMCIDs] = await mysql.query(`
     SELECT v.video_id, v.media_component_id, v.channel_id, v.wave, v.views 
@@ -48,10 +62,8 @@ async function processClaims(context, claimsSource) {
     AND v.media_component_id NOT IN (
       SELECT media_component_id FROM bi_view_media_component
     )
-    ${process.env.IGNORED_MCID_PATTERNS ?
-      `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',')
-        .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')}'`
-      : ''}
+    ${ignoreMCID}
+    ${ignoreChannel}
   `);
 
   // Validate youtube_mcn_claims table for invalid language_id
@@ -63,6 +75,7 @@ async function processClaims(context, claimsSource) {
     AND CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
     )
+    ${ignoreChannel}
   `);
 
   if (!context.outputs.claimsProcessed) {

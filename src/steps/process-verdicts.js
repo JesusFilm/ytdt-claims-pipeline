@@ -3,7 +3,7 @@ const path = require('path');
 const { format } = require('date-fns');
 const csv = require('csv-parse/sync');
 const { stringify } = require('csv-stringify/sync');
-const { cleanRow, resolveRunExportDir } = require('../lib/utils');
+const { cleanRow, resolveRunExportDir, toRegexp } = require('../lib/utils');
 
 
 async function processVerdicts(context) {
@@ -120,10 +120,29 @@ async function processVerdictFile(mysql, filePath, type, context) {
   // can actually correct. These used to be read from the whole target table, so
   // every historical bad id was reported again each month under this run's
   // "Data Quality Issues".
-  const ignoredMCIDs = process.env.IGNORED_MCID_PATTERNS
-    ? `AND v.media_component_id NOT REGEXP '${process.env.IGNORED_MCID_PATTERNS.split(',')
-      .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')}'`
+  // Rows nobody wants reported: placeholder ids (IGNORED_MCID_PATTERNS) and
+  // test channels (IGNORED_CHANNEL_PATTERNS). Built per query because the
+  // upload-scoped checks read channel_id off the joined target table while the
+  // backlog reads it off the table it is scanning.
+  //
+  // Both halves are NULL-safe on purpose. `NULL NOT REGEXP '...'` is NULL, not
+  // true, so an unguarded clause silently drops every row whose
+  // media_component_id is empty — which is most of the backlog.
+  // The channel half goes on every check: a test channel's rows are not worth
+  // anyone's time whichever column is wrong. The mcid half goes only on the
+  // media_component_id checks — a placeholder mcid is no reason to stop
+  // reporting that same row's bad language id.
+  const ignoreChannel = (alias) => process.env.IGNORED_CHANNEL_PATTERNS
+    ? `AND (${alias}.channel_id IS NULL OR ${alias}.channel_id NOT REGEXP '${toRegexp(process.env.IGNORED_CHANNEL_PATTERNS)}')`
     : '';
+  const ignoreMCID = (alias) => process.env.IGNORED_MCID_PATTERNS
+    ? `AND (${alias}.media_component_id IS NULL OR ${alias}.media_component_id NOT REGEXP '${toRegexp(process.env.IGNORED_MCID_PATTERNS)}')`
+    : '';
+
+  // The uploaded file is staged as `v`; `c` is the target table it joins to, so
+  // channel_id comes off `c` here and off `v` in the backlog.
+  const ignoredMCIDRows = `${ignoreMCID('v')}\n    ${ignoreChannel('c')}`;
+  const ignoredLanguageRows = ignoreChannel('c');
 
   const [invalidMCIDs] = await mysql.query(`
     SELECT v.video_id, v.media_component_id, c.channel_id, v.wave,
@@ -136,7 +155,7 @@ async function processVerdictFile(mysql, filePath, type, context) {
     AND v.media_component_id IS NOT NULL
     AND v.media_component_id != '-'
     AND v.media_component_id != ''
-    ${ignoredMCIDs}
+    ${ignoredMCIDRows}
   `);
 
   // wess_language_id is the only id column this view exposes. The warehouse's
@@ -153,12 +172,13 @@ async function processVerdictFile(mysql, filePath, type, context) {
     AND v.language_id IS NOT NULL
     AND v.language_id != '-'
     AND v.language_id != ''
+    ${ignoredLanguageRows}
   `);
 
   // The same questions asked of everything ever loaded. This is the backlog —
   // what nobody has got to yet — and it is listed, not just counted, so it can
   // be worked through instead of only watched.
-  const backlog = await writeBacklog(mysql, type, targetTable, ignoredMCIDs, context);
+  const backlog = await writeBacklog(mysql, type, targetTable, context);
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
@@ -180,8 +200,16 @@ async function processVerdictFile(mysql, filePath, type, context) {
 // Everything in the claims table that still has a bad id, written beside the
 // run's other exports so the console and Drive can hand it over. Two queries
 // against production, the same two that used to be counted.
-async function writeBacklog(mysql, type, targetTable, ignoredMCIDs, context) {
+async function writeBacklog(mysql, type, targetTable, context) {
   const views = type === 'mcn' ? 'v.views' : 'v.lifetime_view_count';
+
+  // Same split as above, but one table: channel_id is on `v` here.
+  const ignoreChannel = process.env.IGNORED_CHANNEL_PATTERNS
+    ? `AND (v.channel_id IS NULL OR v.channel_id NOT REGEXP '${toRegexp(process.env.IGNORED_CHANNEL_PATTERNS)}')`
+    : '';
+  const ignoreMCID = process.env.IGNORED_MCID_PATTERNS
+    ? `AND (v.media_component_id IS NULL OR v.media_component_id NOT REGEXP '${toRegexp(process.env.IGNORED_MCID_PATTERNS)}')`
+    : '';
 
   const [mcidRows] = await mysql.query(`
     SELECT v.video_id, v.media_component_id, v.channel_id, v.wave, ${views} AS views
@@ -189,7 +217,9 @@ async function writeBacklog(mysql, type, targetTable, ignoredMCIDs, context) {
     WHERE CONVERT(v.media_component_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
       SELECT CONVERT(media_component_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_component)
     AND v.media_component_id IS NOT NULL
-    AND v.media_component_id != '-' AND v.media_component_id != '' ${ignoredMCIDs}
+    AND v.media_component_id != '-' AND v.media_component_id != ''
+    ${ignoreMCID}
+    ${ignoreChannel}
   `);
 
   const [languageRows] = await mysql.query(`
@@ -199,6 +229,7 @@ async function writeBacklog(mysql, type, targetTable, ignoredMCIDs, context) {
       SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language)
     AND v.language_id IS NOT NULL
     AND v.language_id != '-' AND v.language_id != ''
+    ${ignoreChannel}
   `);
 
   const exportDir = context.options?.exportDir || resolveRunExportDir(context.startTime);

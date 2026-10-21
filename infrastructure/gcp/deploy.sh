@@ -145,6 +145,8 @@ create_vm() {
     sed -i "" "s#__VPN_AUTH_FILE__#${VPN_AUTH_FILE:-/etc/openvpn/client/auth.txt}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__EXPORT_FOLDER_NAME_FORMAT__#${EXPORT_FOLDER_NAME_FORMAT:-MMM d yyyy hh:mm:ss a}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__GOOGLE_DRIVE_NAME__#${GOOGLE_DRIVE_NAME:-youtube_exports}#g" "$TEMP_CLOUD_CONFIG"
+    sed -i "" "s#__IGNORED_MCID_PATTERNS__#${IGNORED_MCID_PATTERNS}#g" "$TEMP_CLOUD_CONFIG"
+    sed -i "" "s#__IGNORED_CHANNEL_PATTERNS__#${IGNORED_CHANNEL_PATTERNS}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__SLACK_CHANNEL__#${SLACK_CHANNEL}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__SLACK_BOT_TOKEN__#${SLACK_BOT_TOKEN}#g" "$TEMP_CLOUD_CONFIG"
     sed -i "" "s#__SLACK_SIGNING_SECRET__#${SLACK_SIGNING_SECRET}#g" "$TEMP_CLOUD_CONFIG"
