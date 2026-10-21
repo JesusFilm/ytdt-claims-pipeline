@@ -105,9 +105,20 @@ write_files:
     fi
     
     # Download ytdt-claims-pipeline from GCS
+    #
+    # Clone first, then unpack the tarball over it. The tarball is what carries
+    # config/ — VPN credentials and the service-account key, none of which are
+    # in git — and it excludes .git, so it cannot clobber the clone. The clone
+    # is what makes `git pull` work for routine code updates and lets
+    # /api/health report a real branch and commit; without it the VM has no .git
+    # at all and every code change means a full re-provision.
+    #
+    # HTTPS, not SSH: the repo is public and root has no deploy key, so an SSH
+    # remote cannot fetch. That is what a hand-made checkout here got wrong.
     echo "Downloading ytdt-claims-pipeline source..."
     if [ ! -d "/opt/ytdt-claims-pipeline" ]; then
-        mkdir -p /opt/ytdt-claims-pipeline
+        git clone -q https://github.com/JesusFilm/ytdt-claims-pipeline.git \
+            /opt/ytdt-claims-pipeline || mkdir -p /opt/ytdt-claims-pipeline
         gsutil cp gs://ytdt-claims/ytdt-claims-pipeline.tar.gz /tmp/ytdt-claims-pipeline.tar.gz
         tar -xzf /tmp/ytdt-claims-pipeline.tar.gz -C /opt/ytdt-claims-pipeline
         rm /tmp/ytdt-claims-pipeline.tar.gz

@@ -107,9 +107,25 @@ The VM tracks `main`. To ship merged work without re-provisioning:
 ```shell
 gcloud compute ssh ytdt-claims --zone=us-east1-b
 cd /opt/ytdt-claims-pipeline
-git fetch origin && git checkout main && git pull --ff-only origin main
+sudo git fetch origin && sudo git checkout main && sudo git pull --ff-only origin main
+sudo npm install        # only if package.json changed; see below
 sudo systemctl restart ytdt-claims-pipeline
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/health   # expect 200
+```
+
+**Run `npm install` whenever the merged work adds a dependency.** `src/server.js`
+requires its jobs at startup, so a missing module is not a degraded feature — the
+service will not boot, and the console shows "Failed to fetch / System offline"
+while `systemctl` still reports it enabled.
+
+**`git` here needs `sudo`.** The checkout is owned by root, as is everything the
+service writes.
+
+The remote must be the HTTPS URL. The repo is public and root has no deploy key,
+so an SSH remote fails with `Permission denied (publickey)`:
+
+```shell
+sudo git remote set-url origin https://github.com/JesusFilm/ytdt-claims-pipeline.git
 ```
 
 `ceduth/ytdt-claims-pipeline` is a mirror of this repo, updated by hand today:
