@@ -212,20 +212,19 @@ write_files:
     echo "GOOGLE_REDIRECT_URI=${PROTOCOL}://${EXTERNAL_IP}.nip.io/api/auth/google/callback" >> /etc/ytdt-claims-pipeline/.env
 
     echo "Configuring VPN to only route MySQL traffic..."
-    # The RDS endpoint is split-horizon, but not in the way that would make a
-    # lookup here safe: public DNS answers with a PUBLIC address (a CNAME to an
-    # ec2-* name), while inside the VPC the same name is the private one we
-    # need. openvpn also never applies the DNS server the VPN pushes, so nothing
-    # on this VM ever asks the AWS resolver. A getent here would therefore
-    # succeed and pin the wrong IP — worse than failing. Pass MYSQL_IP
-    # explicitly (deploy.sh); the fallback is only for a host whose public
-    # answer is the right one.
+    # The RDS endpoint is split-horizon: public DNS answers with a PUBLIC address
+    # (a CNAME to an ec2-* name), while inside the VPC the same name is the
+    # private one we need. openvpn also never applies the DNS server the VPN
+    # pushes, so nothing on this VM ever asks the AWS resolver.
+    #
+    # So there is no lookup to fall back to. A getent here would succeed and pin
+    # the public address, provision cleanly, and fail at the first MySQL connect
+    # with a timeout that looks like a VPN fault. Failing now is better.
     MYSQL_IP="__MYSQL_IP__"
     if [ -z "$MYSQL_IP" ]; then
-      MYSQL_IP=$(getent hosts "__MYSQL_HOST__" | awk '{ print $1 }')
-    fi
-    if [ -z "$MYSQL_IP" ]; then
-      echo "FATAL: MYSQL_IP is empty and __MYSQL_HOST__ does not resolve." >&2
+      echo "FATAL: MYSQL_IP is not set." >&2
+      echo "Public DNS for __MYSQL_HOST__ answers with a public address, which is" >&2
+      echo "not reachable over the tunnel, so there is nothing to guess from." >&2
       echo "Set MYSQL_IP in .env.production to the RDS private IP and redeploy." >&2
       exit 1
     fi
