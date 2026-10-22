@@ -20,6 +20,9 @@
  *   CLAIMS_MIRROR_ENABLED   "true" to arm the scheduler
  *   CLAIMS_MIRROR_TIME_UTC  HH:MM, default 03:00 — before the Airbyte sync, and clear of the
  *                           06:00 claims ingest: only one OpenVPN client can run at a time
+ *   MIRROR_ALLOW_LARGE_DELETE  "true" to let a MERGE delete more than
+ *                           DELETE_FRACTION_LIMIT of a table. Off by default; set it only
+ *                           after checking that the deletions are real.
  */
 
 const fs = require('fs');
@@ -49,6 +52,11 @@ const TABLES = [
 ];
 
 let running = false;
+
+// Share of the MySQL row count that the MERGE may delete from BigQuery before it
+// refuses. A real month retires a handful of claims; 10% means the extract is
+// wrong, not that the catalogue changed.
+const DELETE_FRACTION_LIMIT = 0.1;
 
 function bqClient() {
   return new BigQuery({
@@ -291,8 +299,14 @@ async function mirrorMerge(bq, pool, spec, dryRun) {
     await loadNdjson(bq, ndjsonPath, stagingName, schema);
     console.log(`Staged ${staged} rows into ${stagingName}`);
 
+    // Counted on both paths. This used to run only under dryRun, which meant the
+    // one number worth checking — how many rows the MERGE would delete — was
+    // computed exactly when nothing was being written, and skipped when it was.
+    const p = await previewMerge(bq, spec, stagingName);
+    const deleteLimit = Number(p.source_rows) * DELETE_FRACTION_LIMIT;
+    const overLimit = Number(p.would_delete) > deleteLimit;
+
     if (dryRun) {
-      const p = await previewMerge(bq, spec, stagingName);
       console.log(
         `DRY RUN ${spec.name} — no changes written.\n` +
           `  MySQL rows            : ${p.source_rows}\n` +
@@ -303,15 +317,37 @@ async function mirrorMerge(bq, pool, spec, dryRun) {
           `  ${spec.bqOwned[0]}=0 preserved : ${p.preserved_bq_owned}   <-- would be reset by a truncate-load\n` +
           `  ${spec.bqOwned[0]}=0 deleted   : ${p.bq_owned_deleted}   <-- gone from MySQL, so dropped`
       );
-      if (Number(p.would_delete) > Number(p.source_rows) * 0.1) {
+      if (overLimit) {
         console.warn(
-          `WARNING: the MERGE would delete more than 10% of ${spec.name}. Check the extract ` +
-            `before running for real.`
+          `WARNING: the MERGE would delete more than ${DELETE_FRACTION_LIMIT * 100}% of ` +
+            `${spec.name}. Check the extract before running for real.`
         );
       }
       // Staging is left in place so the numbers above can be inspected.
       ok = true;
       return { table: spec.name, dryRun: true, ...p };
+    }
+
+    // A MySQL extract that came back short — a half-written table, a filter that
+    // matched nothing, a tunnel that dropped mid-read — looks exactly like
+    // "those rows were retired" to the MERGE, and retired rows get DELETEd from
+    // BigQuery. Refuse rather than let one bad extract take the connector's row
+    // set with it. MIRROR_ALLOW_LARGE_DELETE=true is the deliberate way past,
+    // for the genuine case where that many claims really did go away.
+    if (overLimit && process.env.MIRROR_ALLOW_LARGE_DELETE !== 'true') {
+      throw new Error(
+        `Refusing to MERGE ${spec.name}: it would DELETE ${p.would_delete} of ` +
+          `${p.live_rows} BigQuery rows, over the ${DELETE_FRACTION_LIMIT * 100}% limit ` +
+          `(${Math.floor(deleteLimit)}) for a MySQL extract of ${p.source_rows} rows. ` +
+          'Check the extract, then re-run with MIRROR_ALLOW_LARGE_DELETE=true if the ' +
+          'deletions are real.'
+      );
+    }
+    if (overLimit) {
+      console.warn(
+        `MIRROR_ALLOW_LARGE_DELETE is set: deleting ${p.would_delete} rows from ` +
+          `${spec.name}, over the usual limit.`
+      );
     }
 
     const stats = await mergeIntoLive(bq, spec, stagingName, columns);
