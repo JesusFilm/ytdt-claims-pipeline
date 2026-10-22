@@ -165,6 +165,12 @@ write_files:
     GOOGLE_CLIENT_ID=__GOOGLE_CLIENT_ID__
     GOOGLE_CLIENT_SECRET=__GOOGLE_CLIENT_SECRET__
     GOOGLE_WORKSPACE_DOMAINS=__GOOGLE_WORKSPACE_DOMAINS__
+    BQ_PROJECT_ID=__BQ_PROJECT_ID__
+    BQ_DATASET=__BQ_DATASET__
+    BQ_KEY_FILE=__BQ_KEY_FILE__
+    CLAIMS_MIRROR_ENABLED=__CLAIMS_MIRROR_ENABLED__
+    CLAIMS_MIRROR_TIME_UTC=__CLAIMS_MIRROR_TIME_UTC__
+    MIRROR_ALLOW_LARGE_DELETE=__MIRROR_ALLOW_LARGE_DELETE__
     EOF
     sed -i 's/^    //' /etc/ytdt-claims-pipeline/.env
     chmod 600 /etc/ytdt-claims-pipeline/.env
@@ -226,33 +232,27 @@ write_files:
     echo "GOOGLE_REDIRECT_URI=${PROTOCOL}://${EXTERNAL_IP}.nip.io/api/auth/google/callback" >> /etc/ytdt-claims-pipeline/.env
 
     echo "Configuring VPN to only route MySQL traffic..."
+    # No IP is written down here, on purpose.
+    #
     # The RDS endpoint is split-horizon: public DNS answers with a PUBLIC address
     # (a CNAME to an ec2-* name), while inside the VPC the same name is the
-    # private one we need. openvpn also never applies the DNS server the VPN
-    # pushes, so nothing on this VM ever asks the AWS resolver.
+    # private one we need. The app asks the VPC resolver itself at connect time
+    # (src/steps/connect-vpn.js) and fails loudly if it gets no answer.
     #
-    # So there is no lookup to fall back to. A getent here would succeed and pin
-    # the public address, provision cleanly, and fail at the first MySQL connect
-    # with a timeout that looks like a VPN fault. Failing now is better.
-    MYSQL_IP="__MYSQL_IP__"
-    if [ -z "$MYSQL_IP" ]; then
-      echo "FATAL: MYSQL_IP is not set." >&2
-      echo "Public DNS for __MYSQL_HOST__ answers with a public address, which is" >&2
-      echo "not reachable over the tunnel, so there is nothing to guess from." >&2
-      echo "Set MYSQL_IP in .env.production to the RDS private IP and redeploy." >&2
-      exit 1
-    fi
-
-    # Without the pin the app resolves the endpoint to its public address, which
-    # is not reachable over the tunnel's routes; without the
-    # pull-filter, redirect-gateway takes the whole VM off the network whenever
-    # the tunnel is up.
+    # This used to pin the private address in /etc/hosts and add a host route for
+    # it. Both aged badly: the address was 10.0.5.178 on 2026-10-20 and 10.0.5.218
+    # two days later. A pin that is right on provisioning day and wrong later is
+    # worse than no pin, because it also lies to every other tool on the box —
+    # the mysql CLI, any ad-hoc script, anyone debugging by hostname.
+    #
+    # The host route is not needed either: the tunnel pushes 10.0.0.0/16, which
+    # covers any 10.0.5.x the endpoint moves to. The pull-filter must stay —
+    # without it redirect-gateway takes the whole VM off the network, SSH and IAP
+    # included, whenever the tunnel is up.
     sed -i "/ __MYSQL_HOST__\$/d" /etc/hosts
-    echo "$MYSQL_IP __MYSQL_HOST__" >> /etc/hosts
 
     cat >> /opt/ytdt-claims-pipeline/config/vpn/client.ovpn << VPNEOF
     pull-filter ignore redirect-gateway
-    route $MYSQL_IP 255.255.255.255 vpn_gateway
     VPNEOF
 
     # Create YT-Validator systemd service

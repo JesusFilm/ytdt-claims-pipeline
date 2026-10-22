@@ -19,10 +19,21 @@ const VPC_RESOLVER = '169.254.169.253';
  * and hands back whatever the provisioner pinned there. An explicit Resolver is
  * the only way to reach a real upstream.
  *
- * Returns null on any failure. The caller falls back to the pin, so a resolver
- * that is slow or unreachable costs a few seconds, not the run.
+ * Retried, because the resolver can still be unready in the second or two after
+ * the tunnel reports itself up, and a transient miss should not cost a ten
+ * minute run. Returns null once the attempts are spent; the caller decides what
+ * that means.
  */
-async function resolveInVpc(host, timeoutMs = 5000) {
+async function resolveInVpc(host, { timeoutMs = 5000, attempts = 3, delayMs = 2000 } = {}) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const address = await resolveOnce(host, timeoutMs, attempt, attempts);
+    if (address) return address;
+    if (attempt < attempts) await new Promise(r => setTimeout(r, delayMs));
+  }
+  return null;
+}
+
+async function resolveOnce(host, timeoutMs, attempt, attempts) {
   const resolver = new Resolver();
   resolver.setServers([VPC_RESOLVER]);
 
@@ -36,7 +47,7 @@ async function resolveInVpc(host, timeoutMs = 5000) {
     ]);
     return addresses && addresses.length ? addresses[0] : null;
   } catch (error) {
-    console.log(`VPC lookup of ${host} failed (${error.message}); falling back`);
+    console.log(`VPC lookup of ${host} failed, attempt ${attempt}/${attempts} (${error.message})`);
     return null;
   } finally {
     clearTimeout(timer);
@@ -75,10 +86,18 @@ async function connectVPN(context) {
     await new Promise(resolve => setTimeout(resolve, 2000));
   }
 
-  // Prefer what the VPC resolver says over the /etc/hosts pin the provisioner
-  // wrote. The pin is correct until RDS moves, and then it is silently wrong;
-  // asking through the tunnel keeps working across a move. MYSQL_IP, then the
-  // hostname itself, are the fallbacks.
+  // The VPC resolver is the only authority on where RDS is. Its private address
+  // is not stable: it was 10.0.5.178 on 2026-10-20 and 10.0.5.218 two days
+  // later, so anything written down ages into a wrong answer.
+  //
+  // Nothing is provisioned as a fallback for that reason. MYSQL_IP stays
+  // readable as a break-glass override for the case where the resolver itself
+  // is down and someone needs a run to go through now; provisioning never sets
+  // it, so there is no pin to go stale on its own.
+  //
+  // With neither, fail here. Using the hostname as given would resolve through
+  // public DNS to the endpoint's PUBLIC address, which cannot serve us — the
+  // connection then dies later as a timeout that reads like a VPN fault.
   let host = process.env.MYSQL_HOST;
   if (!skipVpn) {
     const resolved = await resolveInVpc(process.env.MYSQL_HOST);
@@ -86,10 +105,15 @@ async function connectVPN(context) {
       console.log(`MySQL endpoint resolved in-VPC to ${resolved}`);
       host = resolved;
     } else if (process.env.MYSQL_IP) {
-      console.log(`Falling back to MYSQL_IP ${process.env.MYSQL_IP}`);
+      console.log(`VPC resolver gave no answer; using the MYSQL_IP override ${process.env.MYSQL_IP}`);
+      console.log('This is a manual override and may be stale. Unset it once the resolver works.');
       host = process.env.MYSQL_IP;
     } else {
-      console.log('No in-VPC answer and no MYSQL_IP; using the hostname as given');
+      throw new Error(
+        `Could not resolve ${process.env.MYSQL_HOST} via the VPC resolver ${VPC_RESOLVER} ` +
+        'after 3 attempts. The tunnel may be down, or the resolver unreachable. ' +
+        'Set MYSQL_IP to the RDS private address to force a run through.'
+      );
     }
   }
 
