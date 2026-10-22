@@ -15,7 +15,7 @@ The VM provisioning (`cloud-config.yaml`):
 
 1. Installs dependencies: Node.js v20, Nginx, OpenVPN, Miniconda, git-lfs
 2. Downloads and extracts ytdt-claims-pipeline source from GCS
-3. Runs `npm install`
+3. Runs `npm ci`
 4. Clones YT-Validator repo and creates conda environment
 5. Fetches the ML model artifact (~1.4 GB) from GCS — it is not in git, since
    GitHub caps files at 100 MB. Falls back to Git LFS if `model-bucket` is
@@ -108,15 +108,21 @@ The VM tracks `main`. To ship merged work without re-provisioning:
 gcloud compute ssh ytdt-claims --zone=us-east1-b
 cd /opt/ytdt-claims-pipeline
 sudo git fetch origin && sudo git checkout main && sudo git pull --ff-only origin main
-sudo npm install        # only if package.json changed; see below
+sudo npm ci             # only if the dependencies changed; see below
 sudo systemctl restart ytdt-claims-pipeline
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/health   # expect 200
 ```
 
-**Run `npm install` whenever the merged work adds a dependency.** `src/server.js`
+**Run `npm ci` whenever the merged work changes a dependency.** `src/server.js`
 requires its jobs at startup, so a missing module is not a degraded feature — the
 service will not boot, and the console shows "Failed to fetch / System offline"
 while `systemctl` still reports it enabled.
+
+`npm ci` installs exactly what `package-lock.json` pins and nothing else. Use it
+rather than `npm install`, which re-resolves every `^range` against the registry
+and can bump a dozen transitive packages on a VM you only meant to patch. The
+lockfile is the record of what has actually been run in production; keep it
+committed and let Renovate propose changes to it.
 
 **`git` here needs `sudo`.** The checkout is owned by root, as is everything the
 service writes.

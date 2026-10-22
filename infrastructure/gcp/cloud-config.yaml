@@ -124,10 +124,13 @@ write_files:
         rm /tmp/ytdt-claims-pipeline.tar.gz
     fi
     
-    # Install Node.js dependencies
+    # Install Node.js dependencies. `npm ci` installs exactly what
+    # package-lock.json pins, so a VM built today matches one built in March.
+    # `npm install` would re-resolve every ^range against the registry and
+    # quietly hand this VM a dependency set nobody tested.
     echo "Installing Node.js dependencies..."
     cd /opt/ytdt-claims-pipeline
-    npm install
+    npm ci
     
     # Get external IP
     echo "Getting external IP..."
