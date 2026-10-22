@@ -20,9 +20,10 @@
  *   CLAIMS_MIRROR_ENABLED   "true" to arm the scheduler
  *   CLAIMS_MIRROR_TIME_UTC  HH:MM, default 03:00 — before the Airbyte sync, and clear of the
  *                           06:00 claims ingest: only one OpenVPN client can run at a time
- *   MIRROR_ALLOW_LARGE_DELETE  "true" to let a MERGE delete more than
- *                           DELETE_FRACTION_LIMIT of a table. Off by default; set it only
- *                           after checking that the deletions are real.
+ *   MIRROR_ALLOW_LARGE_DELETE  "true" to let a run shed more than DELETE_FRACTION_LIMIT of
+ *                           a table — a MERGE that deletes that many rows, or a REPLACE
+ *                           whose extract came back that much shorter. Off by default; set
+ *                           it only after checking the extract.
  */
 
 const fs = require('fs');
@@ -240,6 +241,13 @@ async function mergeIntoLive(bq, spec, stagingName, columns) {
   return metadata.statistics.query.dmlStats || {};
 }
 
+/** Row count of the live table, or 0 when it does not exist yet. */
+async function liveRowCount(bq, name, schema) {
+  if (!schema) return 0;
+  const [[row]] = await bq.query({ query: `SELECT COUNT(*) AS n FROM ${tableRef(name)}` });
+  return Number(row.n);
+}
+
 /** Truncate-load straight into the live table. Safe only when nothing in BigQuery writes it. */
 async function mirrorReplace(bq, pool, spec, dryRun) {
   const schema = await liveSchema(bq, spec.name);
@@ -251,19 +259,39 @@ async function mirrorReplace(bq, pool, spec, dryRun) {
     console.log(`Extracted ${rows} rows from MySQL ${spec.name}`);
     if (!rows) throw new Error(`MySQL returned 0 rows for ${spec.name} — refusing to truncate`);
 
+    // A truncate-load deletes every live row, so a short extract silently empties the
+    // table. Compare the extract against what is already there and refuse a big shrink.
+    const live = await liveRowCount(bq, spec.name, schema);
+    const floor = live * (1 - DELETE_FRACTION_LIMIT);
+    const shrinking = live > 0 && rows < floor;
+
     if (dryRun) {
-      const live = schema
-        ? Number(
-            (await bq.query({ query: `SELECT COUNT(*) AS n FROM ${tableRef(spec.name)}` }))[0][0].n
-          )
-        : 0;
       console.log(
         `DRY RUN ${spec.name} — no changes written.\n` +
           `  MySQL rows       : ${rows}\n` +
           `  BigQuery rows now: ${live}${schema ? '' : ' (table does not exist yet)'}\n` +
-          `  would REPLACE the table wholesale`
+          `  would REPLACE the table wholesale` +
+          (shrinking
+            ? `\n  WOULD BE REFUSED: ${rows} rows is under the floor of ${Math.ceil(floor)}`
+            : '')
       );
       return { table: spec.name, dryRun: true, source_rows: rows, live_rows: live };
+    }
+
+    if (shrinking && process.env.MIRROR_ALLOW_LARGE_DELETE !== 'true') {
+      throw new Error(
+        `Refusing to REPLACE ${spec.name}: the MySQL extract of ${rows} rows is more than ` +
+          `${DELETE_FRACTION_LIMIT * 100}% smaller than the ${live} rows already in BigQuery ` +
+          `(floor ${Math.ceil(floor)}). A truncate-load would drop the difference. Check the ` +
+          'extract, then re-run with MIRROR_ALLOW_LARGE_DELETE=true if the table really shrank.'
+      );
+    }
+
+    if (shrinking) {
+      console.warn(
+        `MIRROR_ALLOW_LARGE_DELETE is set: replacing ${spec.name}'s ${live} rows with ` +
+          `${rows}, under the usual floor.`
+      );
     }
 
     await loadNdjson(bq, ndjsonPath, spec.name, schema);
