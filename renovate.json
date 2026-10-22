@@ -15,7 +15,10 @@
     }
   ],
   "schedule": [
-    "before 6am on monday"
+    "before 6am on the first day of the month"
   ],
-  "prConcurrentLimit": 3
+  "prConcurrentLimit": 3,
+  "major": {
+    "dependencyDashboardApproval": true
+  }
 }
