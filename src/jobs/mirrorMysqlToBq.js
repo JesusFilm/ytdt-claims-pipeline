@@ -1,54 +1,16 @@
 /**
- * Mirror jfp_analytics_prod (MySQL / arclight, source of truth) -> BigQuery.
+ * Mirror the YouTube tables from MySQL (arclight) into BigQuery.
  *
- * Interim bridge only. The Airbyte YouTube connector and the jfp-dbt YouTube models both read
- * from BigQuery, so while these tables live in MySQL the two sides have to be kept in step.
- * Once feat/export-views-bigquery lands, process-claims.js writes BigQuery directly and the
- * claims half of this job should be DELETED, not maintained.
+ * Interim bridge. The Airbyte connector and the dbt models read BigQuery, but these
+ * tables still live in MySQL, so they have to be copied over. Once
+ * feat/export-views-bigquery lands, process-claims.js writes BigQuery directly and the
+ * claims half of this job should be deleted.
  *
- * TABLES
- * ------
- *   youtube_mcn_claims  MERGE   — the MCN video list the connector reads, filtered by its
- *                                 claims_filter. Has a BigQuery-owned column, so it cannot be
- *                                 truncate-loaded (see COLUMN OWNERSHIP).
- *   youtube_video_views_by_day_public,
- *   youtube_public_videos_stg
- *                       REPLACE — the public-videos leg of the JFM plays view. The deployed
- *                                 MySQL view unions owned-channel plays with public
- *                                 (non-owned) video plays; the copy in
- *                                 jfm_youtube_analytics/sql/views/ shows only the first leg
- *                                 and is stale. The second leg is 500 channels, 2.1M rows,
- *                                 36.2M plays — 5.48% of all-time legacy JFM. Neither table
- *                                 has an Airbyte stream.
- *   youtube_channels    REPLACE — carries include_in_reporting, which gates BOTH plays paths:
- *                                 bi_view_youtube_plays_date_country_jfm joins on it and
- *                                 ..._mcn excludes on it. dbt read it from a hand-maintained
- *                                 CSV seed, which was accurate (15 rows, 14 flagged, matching
- *                                 MySQL) but is a copy someone has to remember to update.
- *                                 Nothing on the BigQuery side writes it, so a truncate-load
- *                                 is correct and simpler than a MERGE.
- *
- * COLUMN OWNERSHIP — the contract the MERGE path exists to honour
- * --------------------------------------------------------------
- *   MySQL-owned : everything except the columns below. Overwritten on every run.
- *                 On youtube_mcn_claims, written here by process-claims.js (INSERT new),
- *                 process-verdicts.js (verdict, wave, media_component_id, language_id,
- *                 no_code, is_edited) and enrich-shorts.js (short).
- *   BQ-owned    : youtube_mcn_claims.available. Written by the Airbyte connector
- *                 (source_social_analytics/bigquery.py mark_video_unavailable) when the
- *                 YouTube Analytics API leaks channel totals for a claimed video, or denies
- *                 it outright. MySQL never learns about those decisions, so a truncate-load
- *                 would resurrect every leaking video as available = 1, put it straight back
- *                 into the connector's claim list and re-leak channel totals into MCN plays.
- *                 Against the live table that is ~20,600 claims, every run.
- *
- * DELETION SEMANTICS (MERGE path): rows absent from MySQL are DELETED from BigQuery. MySQL is
- * authoritative for which claims exist; orphans would keep retired claims in the MCN row set
- * and drift plays upward. BQ-owned columns are preserved only for rows MySQL still has.
- *
- * `new` has no writer in either system — it is set by hand when new media lands, and mirrors
- * from MySQL like any other column. If it ever starts being edited on the BigQuery side, add
- * it to that table's bqOwned list. Same for `short` / `is_edited`. None affect plays.
+ * One column must survive the copy: youtube_mcn_claims.available. BigQuery owns it — the
+ * connector sets it to 0 when the Analytics API leaks channel totals for a claimed video.
+ * MySQL never hears about that, so a plain truncate-load would reset ~20,600 claims back
+ * to available = 1 and re-leak those totals into MCN plays. Hence mode 'merge' for that
+ * table, which keeps bqOwned columns and deletes rows MySQL no longer has.
  *
  * Env:
  *   MYSQL_HOST MYSQL_USER MYSQL_PASSWORD MYSQL_DATABASE   (same vars the pipeline uses)
@@ -81,6 +43,9 @@ const TABLES = [
   // Neither table has an Airbyte stream, so the mirror is the only route into BigQuery.
   { name: 'youtube_video_views_by_day_public', mode: 'replace', bqOwned: [] },
   { name: 'youtube_public_videos_stg', mode: 'replace', bqOwned: [] },
+  // MMDB view: video -> media_component_id / language. The connector's JFM enrichment
+  // lookup reads it and currently 404s, so those columns land NULL.
+  { name: 'youtube_uploaded_videos_jfm', mode: 'replace', bqOwned: [] },
 ];
 
 let running = false;
