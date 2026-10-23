@@ -2,6 +2,7 @@
 const { ObjectId } = require('mongodb');
 const axios = require('axios');
 const { execSync } = require('child_process')
+const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
@@ -57,7 +58,23 @@ function getHealth(req, res) {
       version: process.env.npm_package_version || '1.0.0',
       branch: GIT_BRANCH,
       commit: GIT_COMMIT,
+      // The VM's own uptime, not this process's. A reboot nobody announced
+      // shows up here even when the service came back cleanly.
+      host_uptime: Math.round(os.uptime()),
     };
+
+    // mongod runs on its own VM, so its uptime is the only restart signal we
+    // have for that machine. A health check must not fail because of it.
+    try {
+      const db = await getDatabase();
+      const serverStatus = await db.admin().command({ serverStatus: 1 });
+      health.mongo_status = 'healthy';
+      health.mongo_uptime = Math.round(serverStatus.uptime);
+      health.mongo_version = serverStatus.version;
+    } catch (error) {
+      health.mongo_status = 'unhealthy';
+      health.status = 'degraded';
+    }
 
     if (!process.env.ML_API_ENDPOINT) {
       health.enrich_ml_status = 'disabled';
