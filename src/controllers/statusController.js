@@ -2,6 +2,7 @@
 const { ObjectId } = require('mongodb');
 const axios = require('axios');
 const { execSync } = require('child_process')
+const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
@@ -16,11 +17,43 @@ const DRIVE_ALERT = 'drive-upload';
 const { getRunFolderId, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
+const claimsIngest = require('../jobs/claimsIngest');
+const mirror = require('../jobs/mirrorMysqlToBq');
 
 
 const GIT_BRANCH = (() => { try { return execSync('git rev-parse --abbrev-ref HEAD').toString().trim() } catch { return 'unknown' } })()
 const GIT_COMMIT = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'unknown' } })()
 
+
+
+// A scheduler holds its next run in a setTimeout, nowhere readable. Both use
+// the same rule — a fixed HH:MM UTC — so recompute it from the same config
+// rather than tracking state that could drift from what actually fires.
+function describeSchedule(name, enabledVar, timeVar, defaultTime, msUntilUtc) {
+  const enabled = ['true', '1'].includes(process.env[enabledVar]);
+  const time = process.env[timeVar] || defaultTime;
+  const valid = /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+  return {
+    name,
+    enabled,
+    time_utc: valid ? time : null,
+    next_run: enabled && valid ? new Date(Date.now() + msUntilUtc(time)).toISOString() : null,
+  };
+}
+
+// Free space where the pipeline writes its run folders. A full disk stops an
+// ingest in a way nothing else on this page would show.
+async function diskFree(target) {
+  try {
+    const stats = await fs.promises.statfs(target);
+    return {
+      free_gb: Math.round((stats.bsize * stats.bfree) / 1e9),
+      total_gb: Math.round((stats.bsize * stats.blocks) / 1e9),
+    };
+  } catch {
+    return null;
+  }
+}
 
 // Enhanced status with pipeline step details from MongoDB
 function getStatus(pipelineStatus) {
@@ -57,7 +90,28 @@ function getHealth(req, res) {
       version: process.env.npm_package_version || '1.0.0',
       branch: GIT_BRANCH,
       commit: GIT_COMMIT,
+      // The VM's own uptime, not this process's. A reboot nobody announced
+      // shows up here even when the service came back cleanly.
+      host_uptime: Math.round(os.uptime()),
+      disk: await diskFree(path.resolve(__dirname, '../..')),
+      schedules: [
+        describeSchedule('Claims ingest', 'CLAIMS_INGEST_ENABLED', 'CLAIMS_INGEST_TIME_UTC', '06:00', claimsIngest.msUntilUtc),
+        describeSchedule('MySQL -> BigQuery mirror', 'CLAIMS_MIRROR_ENABLED', 'CLAIMS_MIRROR_TIME_UTC', '03:00', mirror.msUntilUtc),
+      ],
     };
+
+    // mongod runs on its own VM, so its uptime is the only restart signal we
+    // have for that machine. A health check must not fail because of it.
+    try {
+      const db = await getDatabase();
+      const serverStatus = await db.admin().command({ serverStatus: 1 });
+      health.mongo_status = 'healthy';
+      health.mongo_uptime = Math.round(serverStatus.uptime);
+      health.mongo_version = serverStatus.version;
+    } catch (error) {
+      health.mongo_status = 'unhealthy';
+      health.status = 'degraded';
+    }
 
     if (!process.env.ML_API_ENDPOINT) {
       health.enrich_ml_status = 'disabled';
