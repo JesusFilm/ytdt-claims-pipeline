@@ -5,6 +5,7 @@ const exportsController = require('../controllers/exportsController');
 const statusController = require('../controllers/statusController');
 const pendingRunController = require('../controllers/pendingRunController');
 const claimsIngestController = require('../controllers/claimsIngestController');
+const verdictsController = require('../controllers/verdictsController');
 
 
 function createApiRoutes(pipelineStatus) {
@@ -23,6 +24,11 @@ function createApiRoutes(pipelineStatus) {
     { name: 'claims_matter_2', maxCount: 1 }
   ]), pendingRunController.savePending);
   router.delete('/pending-run', pendingRunController.clearPending);
+
+  // Verdicts routes
+  router.post('/verdicts/classify',
+    upload.fields([{ name: 'verdicts', maxCount: 4 }]),
+    verdictsController.classifyUploads);
 
   // Download routes  
   router.get('/uploads/:filename', exportsController.downloadUpload);

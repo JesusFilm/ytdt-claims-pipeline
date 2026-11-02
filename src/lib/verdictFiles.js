@@ -99,4 +99,29 @@ function readVideoIds(filePath) {
   return readColumn(filePath, 'video_id');
 }
 
-module.exports = { classifyCsv, classifyVerdicts, ownedVideoIds, readVideoIds, normalizeHeader, VERDICT_COLUMNS };
+/**
+ * One dropped CSV, identified: the two questions above asked together, because
+ * Slack and the console both ask them in that order and neither can act on the
+ * header answer alone. `field` is the /api/run field the file belongs in, or
+ * null when nobody should guess — a claims file, an unrecognised one, or
+ * verdicts whose side is unsure. Callers phrase the answer; this decides it.
+ */
+function identifyCsv(filePath, ownedIds) {
+  const header = fs.readFileSync(filePath, 'utf8').slice(0, 4096).split('\n')[0];
+  const kind = classifyCsv(header);
+  if (kind !== 'verdicts') {
+    return { kind, side: null, field: null, rows: null, ratio: null, reason: null };
+  }
+  const videoIds = readVideoIds(filePath);
+  const { kind: side, ratio, reason } = classifyVerdicts(videoIds, ownedIds);
+  return {
+    kind,
+    side,
+    field: side === 'jfm' ? 'jfm_verdicts' : side === 'mcn' ? 'mcn_verdicts' : null,
+    rows: videoIds.length,
+    ratio,
+    reason,
+  };
+}
+
+module.exports = { classifyCsv, classifyVerdicts, ownedVideoIds, readVideoIds, identifyCsv, normalizeHeader, VERDICT_COLUMNS };
