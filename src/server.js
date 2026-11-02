@@ -100,6 +100,19 @@ app.post('/api/run', authenticateRequest,
       steps = requested;
     }
 
+    // Steps to leave out of an otherwise normal run. The console uses it to
+    // run everything except the model.
+    let skip;
+    if (req.body?.skip) {
+      const requested = String(req.body.skip).split(',').map(s => s.trim()).filter(Boolean);
+      const known = getPipelineStepNames();
+      const unknown = requested.filter(name => !known.includes(name));
+      if (unknown.length) {
+        return res.status(400).json({ error: `Unknown step(s) to skip: ${unknown.join(', ')}`, knownSteps: known });
+      }
+      if (requested.length) skip = requested;
+    }
+
     // Start pipeline
     pipelineStatus = {
       running: true,
@@ -109,7 +122,11 @@ app.post('/api/run', authenticateRequest,
     };
 
     // Run pipeline in background
-    runPipeline(files, steps ? { steps } : {}, null, { source: 'ui', user: req.user?.email || 'unknown' })
+    const options = {};
+    if (steps) options.steps = steps;
+    if (skip) options.skip = skip;
+
+    runPipeline(files, options, null, { source: 'ui', user: req.user?.email || 'unknown' })
       .then(async (result) => {
         pipelineStatus = {
           running: false,

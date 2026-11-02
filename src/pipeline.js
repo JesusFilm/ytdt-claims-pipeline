@@ -21,10 +21,19 @@ const PIPELINE_TIMEOUT_MINUTES = parseInt(process.env.PIPELINE_TIMEOUT_MINUTES) 
 //
 // Note this list is also re-derived when deciding whether a run has finished,
 // so the same `only` must be passed there or a filtered run never completes.
-function getPipelineSteps(files, only = null) {
-  const steps = getAllPipelineSteps(files);
-  if (!Array.isArray(only) || only.length === 0) return steps;
-  return steps.filter(step => only.includes(step.name));
+// `skip` names steps to leave out of an otherwise normal run, e.g. scoring.
+// Unlike `only` it does not shorten the list: the step stays in it and is
+// recorded as skipped, so the run still counts as finished and history shows
+// what was left out rather than silently missing a step.
+function getPipelineSteps(files, only = null, skip = null) {
+  let steps = getAllPipelineSteps(files);
+  if (Array.isArray(only) && only.length) steps = steps.filter(step => only.includes(step.name));
+  if (Array.isArray(skip) && skip.length) {
+    steps = steps.map(step => (skip.includes(step.name)
+      ? { ...step, condition: () => false, skipReason: 'turned off for this run' }
+      : step));
+  }
+  return steps;
 }
 
 function getAllPipelineSteps(files) {
@@ -144,7 +153,7 @@ async function runPipeline(files, options = {}, existingRunId = null, triggeredB
       console.log(`Pipeline run started with ID: ${runId}`);
     }
 
-    const steps = getPipelineSteps(files, options.steps);
+    const steps = getPipelineSteps(files, options.steps, options.skip);
     for (const step of steps) {
 
       // Check if pipeline was stopped
@@ -162,7 +171,7 @@ async function runPipeline(files, options = {}, existingRunId = null, triggeredB
 
       // Skip if condition not met
       if (step.condition && !step.condition()) {
-        console.log(`Skipping ${step.name} - no input file`);
+        console.log(`Skipping ${step.name} - ${step.skipReason || 'no input file'}`);
 
         // Update DB with skipped step
         await collection.updateOne(
