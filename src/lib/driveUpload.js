@@ -92,22 +92,66 @@ async function getRunFolderId(runId, folderName, sharedDriveName) {
 }
 
 
-async function uploadFile(filePath, folderId, rows=null) {
-  const driveApi = await initDrive();
-  
-  const file = await driveApi.files.create({
-    requestBody: { name: path.basename(filePath), parents: [folderId] },
-    media: { mimeType: 'text/csv', body: createReadStream(filePath) },
-    fields: 'id, name, size',
-    supportsAllDrives: true
-  });
+// A connection that dropped, or a Drive that asked us to come back later.
+// Anything else -- a bad folder id, no permission -- fails the same on a
+// second try, so retrying it only delays the alert.
+const RETRYABLE_CODES = new Set([
+  'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'ERR_STREAM_PREMATURE_CLOSE',
+]);
 
-  return {
-    name: file.data.name,
-    path: `https://drive.google.com/file/d/${file.data.id}/view`,
-    size: parseInt(file.data.size),
-    rows
-  };
+function isRetryable(error) {
+  const status = error?.response?.status ?? error?.code;
+  if (status === 429 || (Number.isInteger(status) && status >= 500)) return true;
+  // fetch wraps the real cause one level down: `read ETIMEDOUT` arrives as a
+  // FetchError whose own code says nothing.
+  return RETRYABLE_CODES.has(error?.code) || RETRYABLE_CODES.has(error?.cause?.code)
+    || [...RETRYABLE_CODES].some(code => String(error?.message || '').includes(code));
+}
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Uploads the file, and tries again when the network drops it.
+ *
+ * googleapis will not do this for us: gaxios retries only GET, HEAD, PUT,
+ * OPTIONS and DELETE (its httpMethodsToRetry default), and an upload is a POST.
+ * The reason is the body -- a retry would re-send a stream already consumed and
+ * write an empty file -- so the attempt is made here, where a fresh
+ * createReadStream can be opened for each one.
+ *
+ * Without this, one `read ETIMEDOUT` lost a scored claims CSV that the model
+ * had already spent the time to produce.
+ */
+async function uploadFile(filePath, folderId, rows=null, { attempts = 4, baseDelayMs = 2000 } = {}) {
+  const driveApi = await initDrive();
+  const name = path.basename(filePath);
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const file = await driveApi.files.create({
+        requestBody: { name, parents: [folderId] },
+        media: { mimeType: 'text/csv', body: createReadStream(filePath) },
+        fields: 'id, name, size',
+        supportsAllDrives: true
+      });
+
+      if (attempt > 1) console.log(`Drive upload of ${name} succeeded on attempt ${attempt}`);
+      return {
+        name: file.data.name,
+        path: `https://drive.google.com/file/d/${file.data.id}/view`,
+        size: parseInt(file.data.size),
+        rows
+      };
+
+    } catch (error) {
+      if (attempt >= attempts || !isRetryable(error)) throw error;
+      // 2s, 4s, 8s, plus jitter so two uploads that broke together do not come
+      // back together.
+      const delay = baseDelayMs * 2 ** (attempt - 1) + Math.floor(Math.random() * 500);
+      console.warn(`Drive upload of ${name} failed (attempt ${attempt}/${attempts}): ${error.message}. Retrying in ${delay}ms`);
+      await sleep(delay);
+    }
+  }
 }
 
 async function uploadFileWithFallback(filePath, folderId, rows=null) {
