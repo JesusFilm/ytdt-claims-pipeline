@@ -7,7 +7,7 @@ const { getDatabase } = require('../database');
 const { runPipeline, getCurrentPipelineStatus } = require('../pipeline');
 const { STEPS, getSession, createSession, updateSession, deleteSession, currentStep, stepCount } = require('../lib/slackSession');
 const { getPendingRun, clearPendingRun } = require('../lib/pendingRun');
-const { classifyCsv, classifyVerdicts, ownedVideoIds, readVideoIds } = require('../lib/verdictFiles');
+const { ownedVideoIds, identifyCsv } = require('../lib/verdictFiles');
 const { isClaimsIngestRunning, COLLECTION: INGEST_COLLECTION } = require('../jobs/claimsIngest');
 
 
@@ -223,31 +223,27 @@ async function handleDroppedFiles(event) {
       continue;
     }
 
-    const header = fs.readFileSync(destPath, 'utf8').slice(0, 4096).split('\n')[0];
-    const kind = classifyCsv(header);
-    if (kind === 'claims') {
+    const id = identifyCsv(destPath, owned);
+    if (id.kind === 'claims') {
       lines.push(`• \`${file.name}\` — a *claims* file. Claims are collected daily now, so this is not needed; ` +
         'upload it in the console only if collection is down.');
       continue;
     }
-    if (kind !== 'verdicts') {
+    if (id.kind !== 'verdicts') {
       lines.push(`• \`${file.name}\` — not a verdicts file (its columns are neither claims nor verdicts).`);
       continue;
     }
 
-    const videoIds = readVideoIds(destPath);
-    const verdict = classifyVerdicts(videoIds, owned);
-    const rows = videoIds.length.toLocaleString();
-    if (verdict.kind === 'unsure') {
+    const rows = id.rows.toLocaleString();
+    if (id.side === 'unsure') {
       unsure.push(file.name);
       lines.push(`• \`${file.name}\` — ${rows} verdicts, but whether these are MCN or JFM is unclear` +
-        `${verdict.ratio === null ? ` (${verdict.reason})` : ` (${Math.round(verdict.ratio * 100)}% are our own videos)`}.`);
+        `${id.ratio === null ? ` (${id.reason})` : ` (${Math.round(id.ratio * 100)}% are our own videos)`}.`);
       continue;
     }
-    const key = verdict.kind === 'jfm' ? 'jfm_verdicts' : 'mcn_verdicts';
-    files[key] = destPath;
-    lines.push(`• \`${file.name}\` — *${verdict.kind.toUpperCase()} verdicts*, ${rows} rows ` +
-      `(${Math.round(verdict.ratio * 100)}% of these videos are ours).`);
+    files[id.field] = destPath;
+    lines.push(`• \`${file.name}\` — *${id.side.toUpperCase()} verdicts*, ${rows} rows ` +
+      `(${Math.round(id.ratio * 100)}% of these videos are ours).`);
   }
 
   if (!Object.keys(files).length) {
