@@ -4,26 +4,23 @@ const { format } = require('date-fns');
 const csv = require('csv-parse/sync');
 const { stringify } = require('csv-stringify/sync');
 const { cleanRow, resolveRunExportDir, toRegexp } = require('../lib/utils');
+const { getBigQueryClient, getDataset, getTable, tableRef, coreTableRef, escapeValue } = require('../lib/bigquery');
 
 
 async function processVerdicts(context) {
 
-  const mysql = context.connections.mysql;
-
   // Process MCN verdicts
   if (context.files.mcnVerdicts) {
     await processVerdictFile(
-      mysql,
       context.files.mcnVerdicts,
       'mcn',
       context
     );
   }
 
-  // Process JFM verdicts  
+  // Process JFM verdicts
   if (context.files.jfmVerdicts) {
     await processVerdictFile(
-      mysql,
       context.files.jfmVerdicts,
       'jfm',
       context
@@ -31,21 +28,31 @@ async function processVerdicts(context) {
   }
 }
 
-async function processVerdictFile(mysql, filePath, type, context) {
+async function processVerdictFile(filePath, type, context) {
+  const bq = getBigQueryClient();
+  const dataset = getDataset();
   const tableName = `${type}_verdicts_${format(new Date(), 'yyyyMMdd')}`;
 
-  // Create verdicts table
-  await mysql.query(`
-    CREATE TABLE IF NOT EXISTS ${tableName} (
-      video_id VARCHAR(191) PRIMARY KEY,
-      verdict VARCHAR(1),
-      media_component_id VARCHAR(255),
-      language_id VARCHAR(255),
-      wave VARCHAR(100),
-      no_code VARCHAR(255),
-      is_edited TINYINT(1)
-    )
-  `);
+  // Staging table for this upload
+  const [exists] = await getTable(tableName).exists();
+  if (!exists) {
+    await dataset.createTable(tableName, {
+      schema: {
+        fields: [
+          { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+          { name: 'verdict', type: 'STRING' },
+          { name: 'media_component_id', type: 'STRING' },
+          { name: 'language_id', type: 'STRING' },
+          { name: 'wave', type: 'STRING' },
+          { name: 'no_code', type: 'STRING' },
+          { name: 'is_edited', type: 'INT64' },
+        ]
+      }
+    });
+  } else {
+    // A re-run of the same day lands on the same table name
+    await bq.query({ query: `TRUNCATE TABLE ${tableRef(tableName)}` });
+  }
 
   // Read and parse CSV
   const fileContent = await fs.readFile(filePath, 'utf8');
@@ -65,56 +72,69 @@ async function processVerdictFile(mysql, filePath, type, context) {
     };
   });
 
-  // Insert verdicts
-  for (let i = 0; i < cleaned.length; i += 1000) {
-    const batch = cleaned.slice(i, i + 1000);
+  // Insert via DML query (immediately available for MERGE, unlike streaming insert)
+  const COLUMNS = ['video_id', 'verdict', 'media_component_id', 'language_id', 'wave', 'no_code', 'is_edited'];
+  const TYPES = { is_edited: 'INT64' };
+  const BATCH_SIZE = 1000;
+  for (let i = 0; i < cleaned.length; i += BATCH_SIZE) {
+    const batch = cleaned.slice(i, i + BATCH_SIZE);
     const values = batch.map(r =>
-      `(${mysql.escape(r.video_id)}, ${mysql.escape(r.verdict)}, 
-        ${mysql.escape(r.media_component_id)}, ${mysql.escape(r.language_id)}, 
-        ${mysql.escape(r.wave)}, ${mysql.escape(r.no_code)}, ${mysql.escape(r.is_edited)})`
-    ).join(',');
+      `(${COLUMNS.map(col => escapeValue(r[col], TYPES[col] || 'STRING')).join(', ')})`
+    ).join(',\n');
 
-    await mysql.query(`
-      INSERT INTO ${tableName} 
-      (video_id, verdict, media_component_id, language_id, wave, no_code, is_edited)
-      VALUES ${values}
-      ON DUPLICATE KEY UPDATE 
-        verdict = VALUES(verdict),
-        media_component_id = VALUES(media_component_id),
-        language_id = VALUES(language_id),
-        wave = VALUES(wave),
-        no_code = VALUES(no_code),
-        is_edited = VALUES(is_edited)
-    `);
+    await bq.query({
+      query: `INSERT INTO ${tableRef(tableName)} (${COLUMNS.join(', ')}) VALUES ${values}`
+    });
   }
 
-  // Update main tables
+  // Apply verdicts to the target table
   const targetTable = type === 'mcn' ? 'youtube_mcn_claims' : 'youtube_channel_videos';
   const timestampField = type === 'mcn' ? 'verdict_last_updated_date' : 'updated_at';
 
-  await mysql.query(`
-    UPDATE ${targetTable} c, ${tableName} v
-    SET c.verdict = CASE WHEN v.verdict IS NOT NULL THEN v.verdict ELSE c.verdict END,
-        c.wave = CASE WHEN v.wave IS NOT NULL THEN v.wave ELSE c.wave END,
-        c.media_component_id = CASE 
-          WHEN v.media_component_id IS NULL THEN c.media_component_id
-          WHEN v.media_component_id = '-' THEN NULL 
-          ELSE v.media_component_id 
-        END,
-        c.language_id = CASE 
-          WHEN v.language_id IS NULL THEN c.language_id
-          WHEN v.language_id = '-' THEN NULL 
-          ELSE v.language_id 
-        END,
-        c.no_code = CASE 
-          WHEN v.no_code IS NULL THEN c.no_code
-          WHEN v.no_code = '-' THEN NULL 
-          ELSE v.no_code 
-        END,
-        c.is_edited = CASE WHEN v.is_edited IS NOT NULL THEN v.is_edited ELSE c.is_edited END,
-        c.${timestampField} = NOW()
-    WHERE c.video_id = v.video_id
-  `);
+  // is_edited only exists on some targets; setting a column the table does not
+  // have fails the whole MERGE.
+  const [targetMetadata] = await getTable(targetTable).getMetadata();
+  const targetCols = new Set(targetMetadata.schema.fields.map(f => f.name));
+  const setIsEdited = targetCols.has('is_edited')
+    ? `c.is_edited = COALESCE(v.is_edited, c.is_edited),`
+    : '';
+
+  // QUALIFY keeps one row per video_id: BigQuery rejects a MERGE whose source
+  // matches the same target row twice.
+  const mergeQuery = `
+    MERGE ${tableRef(targetTable)} AS c
+    USING (
+      SELECT * FROM ${tableRef(tableName)}
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY video_id ORDER BY video_id) = 1
+    ) AS v
+    ON c.video_id = v.video_id
+    WHEN MATCHED THEN UPDATE SET
+      c.verdict = COALESCE(v.verdict, c.verdict),
+      c.wave = COALESCE(v.wave, c.wave),
+      c.media_component_id = CASE
+        WHEN v.media_component_id IS NULL THEN c.media_component_id
+        WHEN v.media_component_id = '-' THEN NULL
+        ELSE v.media_component_id
+      END,
+      c.language_id = CASE
+        WHEN v.language_id IS NULL THEN c.language_id
+        WHEN v.language_id = '-' THEN NULL
+        ELSE v.language_id
+      END,
+      c.no_code = CASE
+        WHEN v.no_code IS NULL THEN c.no_code
+        WHEN v.no_code = '-' THEN NULL
+        ELSE v.no_code
+      END,
+      ${setIsEdited}
+      c.${timestampField} = CURRENT_TIMESTAMP()
+  `;
+
+  const [mergeJob] = await bq.createQueryJob({ query: mergeQuery });
+  await mergeJob.getQueryResults();
+  const [jobMetadata] = await mergeJob.getMetadata();
+  const mergeStats = jobMetadata.statistics.query.dmlStats || {};
+  console.log(`Merged ${type} verdicts into ${targetTable}: ${mergeStats.updatedRowCount || 0} updated`);
 
   // Invalid ids in the file that was just uploaded — the rows whoever sent it
   // can actually correct. These used to be read from the whole target table, so
@@ -125,18 +145,18 @@ async function processVerdictFile(mysql, filePath, type, context) {
   // upload-scoped checks read channel_id off the joined target table while the
   // backlog reads it off the table it is scanning.
   //
-  // Both halves are NULL-safe on purpose. `NULL NOT REGEXP '...'` is NULL, not
-  // true, so an unguarded clause silently drops every row whose
+  // Both halves are NULL-safe on purpose. REGEXP_CONTAINS(NULL, '...') is NULL,
+  // not false, so an unguarded clause silently drops every row whose
   // media_component_id is empty — which is most of the backlog.
   // The channel half goes on every check: a test channel's rows are not worth
   // anyone's time whichever column is wrong. The mcid half goes only on the
   // media_component_id checks — a placeholder mcid is no reason to stop
   // reporting that same row's bad language id.
   const ignoreChannel = (alias) => process.env.IGNORED_CHANNEL_PATTERNS
-    ? `AND (${alias}.channel_id IS NULL OR ${alias}.channel_id NOT REGEXP '${toRegexp(process.env.IGNORED_CHANNEL_PATTERNS)}')`
+    ? `AND (${alias}.channel_id IS NULL OR NOT REGEXP_CONTAINS(${alias}.channel_id, r'${toRegexp(process.env.IGNORED_CHANNEL_PATTERNS)}'))`
     : '';
   const ignoreMCID = (alias) => process.env.IGNORED_MCID_PATTERNS
-    ? `AND (${alias}.media_component_id IS NULL OR ${alias}.media_component_id NOT REGEXP '${toRegexp(process.env.IGNORED_MCID_PATTERNS)}')`
+    ? `AND (${alias}.media_component_id IS NULL OR NOT REGEXP_CONTAINS(${alias}.media_component_id, r'${toRegexp(process.env.IGNORED_MCID_PATTERNS)}'))`
     : '';
 
   // The uploaded file is staged as `v`; `c` is the target table it joins to, so
@@ -144,41 +164,48 @@ async function processVerdictFile(mysql, filePath, type, context) {
   const ignoredMCIDRows = `${ignoreMCID('v')}\n    ${ignoreChannel('c')}`;
   const ignoredLanguageRows = ignoreChannel('c');
 
-  const [invalidMCIDs] = await mysql.query(`
-    SELECT v.video_id, v.media_component_id, c.channel_id, v.wave,
-      c.${type === 'mcn' ? 'views' : 'lifetime_view_count'} AS views
-    FROM ${tableName} v
-    LEFT JOIN ${targetTable} c ON c.video_id = v.video_id
-    WHERE CONVERT(v.media_component_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-      SELECT CONVERT(media_component_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_component
-    )
-    AND v.media_component_id IS NOT NULL
-    AND v.media_component_id != '-'
-    AND v.media_component_id != ''
-    ${ignoredMCIDRows}
-  `);
+  // BigQuery compares strings byte for byte, so MySQL's CONVERT/COLLATE dance
+  // is not needed on either check.
+  const [invalidMCIDs] = await bq.query({
+    query: `
+      SELECT v.video_id, v.media_component_id, c.channel_id, v.wave,
+        c.${type === 'mcn' ? 'views' : 'lifetime_view_count'} AS views
+      FROM ${tableRef(tableName)} v
+      LEFT JOIN ${tableRef(targetTable)} c ON c.video_id = v.video_id
+      WHERE v.media_component_id NOT IN (
+        SELECT media_component_id FROM ${coreTableRef('bi_view_media_component')}
+      )
+      AND v.media_component_id IS NOT NULL
+      AND v.media_component_id != '-'
+      AND v.media_component_id != ''
+      ${ignoredMCIDRows}
+    `
+  });
 
   // wess_language_id is the only id column this view exposes. The warehouse's
   // own process_verdicts.sql compares against "language_id", which does not
-  // exist here, so MySQL resolves it to the outer table's column and the check
-  // always passes — which is why that script reports none and this reports some.
-  const [invalidLanguageIDs] = await mysql.query(`
-    SELECT v.video_id, v.language_id, c.channel_id
-    FROM ${tableName} v
-    LEFT JOIN ${targetTable} c ON c.video_id = v.video_id
-    WHERE CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-      SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language
-    )
-    AND v.language_id IS NOT NULL
-    AND v.language_id != '-'
-    AND v.language_id != ''
-    ${ignoredLanguageRows}
-  `);
+  // exist here, so the reference resolves to the outer table's column and the
+  // check always passes — which is why that script reports none and this
+  // reports some.
+  const [invalidLanguageIDs] = await bq.query({
+    query: `
+      SELECT v.video_id, v.language_id, c.channel_id
+      FROM ${tableRef(tableName)} v
+      LEFT JOIN ${tableRef(targetTable)} c ON c.video_id = v.video_id
+      WHERE v.language_id NOT IN (
+        SELECT wess_language_id FROM ${coreTableRef('bi_view_media_language')}
+      )
+      AND v.language_id IS NOT NULL
+      AND v.language_id != '-'
+      AND v.language_id != ''
+      ${ignoredLanguageRows}
+    `
+  });
 
   // The same questions asked of everything ever loaded. This is the backlog —
   // what nobody has got to yet — and it is listed, not just counted, so it can
   // be worked through instead of only watched.
-  const backlog = await writeBacklog(mysql, type, targetTable, context);
+  const backlog = await writeBacklog(bq, type, targetTable, context);
 
   context.outputs[`${type}Verdicts`] = {
     processed: cleaned.length,
@@ -198,39 +225,42 @@ async function processVerdictFile(mysql, filePath, type, context) {
 }
 
 // Everything in the claims table that still has a bad id, written beside the
-// run's other exports so the console and Drive can hand it over. Two queries
-// against production, the same two that used to be counted.
-async function writeBacklog(mysql, type, targetTable, context) {
+// run's other exports so the console and Drive can hand it over.
+async function writeBacklog(bq, type, targetTable, context) {
   const views = type === 'mcn' ? 'v.views' : 'v.lifetime_view_count';
 
   // Same split as above, but one table: channel_id is on `v` here.
   const ignoreChannel = process.env.IGNORED_CHANNEL_PATTERNS
-    ? `AND (v.channel_id IS NULL OR v.channel_id NOT REGEXP '${toRegexp(process.env.IGNORED_CHANNEL_PATTERNS)}')`
+    ? `AND (v.channel_id IS NULL OR NOT REGEXP_CONTAINS(v.channel_id, r'${toRegexp(process.env.IGNORED_CHANNEL_PATTERNS)}'))`
     : '';
   const ignoreMCID = process.env.IGNORED_MCID_PATTERNS
-    ? `AND (v.media_component_id IS NULL OR v.media_component_id NOT REGEXP '${toRegexp(process.env.IGNORED_MCID_PATTERNS)}')`
+    ? `AND (v.media_component_id IS NULL OR NOT REGEXP_CONTAINS(v.media_component_id, r'${toRegexp(process.env.IGNORED_MCID_PATTERNS)}'))`
     : '';
 
-  const [mcidRows] = await mysql.query(`
-    SELECT v.video_id, v.media_component_id, v.channel_id, v.wave, ${views} AS views
-    FROM ${targetTable} v
-    WHERE CONVERT(v.media_component_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-      SELECT CONVERT(media_component_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_component)
-    AND v.media_component_id IS NOT NULL
-    AND v.media_component_id != '-' AND v.media_component_id != ''
-    ${ignoreMCID}
-    ${ignoreChannel}
-  `);
+  const [mcidRows] = await bq.query({
+    query: `
+      SELECT v.video_id, v.media_component_id, v.channel_id, v.wave, ${views} AS views
+      FROM ${tableRef(targetTable)} v
+      WHERE v.media_component_id NOT IN (
+        SELECT media_component_id FROM ${coreTableRef('bi_view_media_component')})
+      AND v.media_component_id IS NOT NULL
+      AND v.media_component_id != '-' AND v.media_component_id != ''
+      ${ignoreMCID}
+      ${ignoreChannel}
+    `
+  });
 
-  const [languageRows] = await mysql.query(`
-    SELECT v.video_id, v.language_id, v.channel_id
-    FROM ${targetTable} v
-    WHERE CONVERT(v.language_id USING utf8mb4) COLLATE utf8mb4_bin NOT IN (
-      SELECT CONVERT(wess_language_id USING utf8mb4) COLLATE utf8mb4_bin FROM bi_view_media_language)
-    AND v.language_id IS NOT NULL
-    AND v.language_id != '-' AND v.language_id != ''
-    ${ignoreChannel}
-  `);
+  const [languageRows] = await bq.query({
+    query: `
+      SELECT v.video_id, v.language_id, v.channel_id
+      FROM ${tableRef(targetTable)} v
+      WHERE v.language_id NOT IN (
+        SELECT wess_language_id FROM ${coreTableRef('bi_view_media_language')})
+      AND v.language_id IS NOT NULL
+      AND v.language_id != '-' AND v.language_id != ''
+      ${ignoreChannel}
+    `
+  });
 
   const exportDir = context.options?.exportDir || resolveRunExportDir(context.startTime);
   await fs.mkdir(exportDir, { recursive: true });
@@ -259,8 +289,8 @@ async function writeBacklog(mysql, type, targetTable, context) {
 }
 
 // Group bad rows by the id that is wrong, worst first. Done here rather than in
-// SQL: the rows are already fetched for the download, and the database is
-// production — this asks it nothing more.
+// SQL: the rows are already fetched for the download, so this asks the
+// warehouse nothing more.
 function summarise(rows, column, examplesPerId = 3) {
   const byId = new Map();
   for (const row of rows) {

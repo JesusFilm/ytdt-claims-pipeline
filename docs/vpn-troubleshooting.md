@@ -1,5 +1,9 @@
 # VPN Troubleshooting
 
+> The pipeline no longer uses the tunnel: it reads and writes BigQuery.
+> Everything below applies to `jobs/mirrorMysqlToBq.js`, the last thing that
+> reaches arclight's MySQL, and goes when that job does.
+
 The pipeline connects to MySQL RDS through OpenVPN by spawning the `openvpn` binary directly (see `src/steps/connect-vpn.js`). The `.ovpn` file lives at `./config/vpn/client.ovpn` (gitignored).
 
 ## Rotating credentials

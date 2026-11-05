@@ -12,7 +12,7 @@ ASR caption queue.
    ↓  skip if a pipeline run is active (retry next day)
 Newest a3 report per owner not yet ingested  →  nothing new? record "nothing_new", stop
    ↓  download + gunzip  (data/claims-reports/, deleted after success)
-connect_vpn (MySQL; no tunnel when SKIP_VPN) → validate_input_csvs → process_claims (per owner) → enrich_shorts
+validate_input_csvs → process_claims (per owner) → enrich_shorts   (all BigQuery)
    ↓
 export export_unprocessed_claims only  (data/exports/claims-ingest/<yyyyMMddHHmmss>/)
    ↓

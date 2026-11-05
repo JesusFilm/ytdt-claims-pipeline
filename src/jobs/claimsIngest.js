@@ -10,8 +10,6 @@ const youtubeReporting = require('../lib/youtubeReporting');
 
 const { raiseAlert, clearAlert } = require('../lib/serviceAlerts');
 
-const connectVPN = require('../steps/connect-vpn');
-const disconnectVPN = require('../steps/disconnect-vpn');
 const validateInputCSVs = require('../steps/validate-input-csvs');
 const processClaims = require('../steps/process-claims');
 const enrichShorts = require('../steps/enrich-shorts');
@@ -72,7 +70,7 @@ async function removeReportDownloads(dir) {
 }
 
 
-// True while an ingest holds the VPN/MySQL, in this process or another one
+// True while an ingest is loading claims, in this process or another one
 // (e.g. the manual script). A crashed ingest stops counting after the timeout.
 async function isClaimsIngestRunning() {
   if (running) return true;
@@ -260,7 +258,6 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
     }
 
     stage = 'database';
-    await connectVPN(context);
     await validateInputCSVs(context);
 
     for (const source of Object.keys(context.files.claims)) {
@@ -310,12 +307,6 @@ async function runClaimsIngest({ trigger = 'schedule', dryRun = false } = {}) {
     return record;
 
   } finally {
-    try {
-      await disconnectVPN(context);
-    } catch (err) {
-      console.error('claims ingest: failed to disconnect VPN:', err);
-    }
-
     // The API keeps reports for ~60 days, so a successful load needs no local copy.
     // Failed downloads stay for inspection until the next successful run.
     if (record.status === 'completed') {

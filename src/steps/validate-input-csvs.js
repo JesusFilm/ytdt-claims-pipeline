@@ -2,7 +2,7 @@ const fs = require('fs').promises;
 const csv = require('csv-parse/sync');
 const { readFile } = require('../lib/utils');
 
-// Columns that currently exist in MySQL tables
+// Columns that currently exist in the warehouse tables
 const VALID_COLUMNS = {
   claims: [
     'claim_id', 'claim_status', 'claim_status_detail', 'claim_origin', 'claim_type',

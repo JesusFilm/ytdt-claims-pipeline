@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /*
-# Test with or without VPN (for local MySQL)
-sudo node test-pipeline.js [--skip-vpn]
+# Needs the BigQuery service account key named by BQ_KEY_FILE
+node test-pipeline.js
 */
 
 require('dotenv').config();
@@ -45,7 +45,8 @@ async function testSteps() {
 
   // Test 1: Check environment variables
   console.log('1. Checking environment variables...');
-  const requiredEnvs = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
+  // BQ_DATASET and BQ_KEY_FILE both have defaults; only the project must be set.
+  const requiredEnvs = ['BQ_PROJECT_ID'];
   const missingEnvs = requiredEnvs.filter(env => !process.env[env]);
   
   if (missingEnvs.length > 0) {
@@ -55,38 +56,28 @@ async function testSteps() {
   }
   console.log('✓ All required environment variables present');
 
-  // Test 2: Check VPN config file
-  console.log('\n2. Checking VPN config...');
-  const vpnConfigPath = process.env.VPN_CONFIG_FILE || './config/vpn/client.ovpn';
+  // Test 2: Check the service account key
+  console.log('\n2. Checking BigQuery key file...');
+  const keyFile = process.env.BQ_KEY_FILE || './config/service-account-key.json';
   try {
-    await fs.access(vpnConfigPath);
-    console.log('✓ VPN config file found');
+    await fs.access(keyFile);
+    console.log('✓ Service account key found');
   } catch (error) {
-    console.error('❌ VPN config not found at:', vpnConfigPath);
-    console.log('   You can skip VPN for testing by commenting out the connect_vpn step');
+    console.error('❌ Service account key not found at:', keyFile);
+    return false;
   }
 
-  // Test 3: Test MySQL connection (without VPN for local testing)
-  console.log('\n3. Testing MySQL connection...');
-  if (process.env.MYSQL_HOST === 'localhost' || process.env.SKIP_VPN === 'true') {
-    const mysql = require('mysql2/promise');
-    try {
-      const connection = await mysql.createConnection({
-        host: process.env.MYSQL_HOST,
-        user: process.env.MYSQL_USER,
-        password: process.env.MYSQL_PASSWORD,
-        database: process.env.MYSQL_DATABASE
-      });
-      
-      const [rows] = await connection.execute('SELECT 1 as test');
-      console.log('✓ MySQL connection successful:', rows[0]);
-      await connection.end();
-    } catch (error) {
-      console.error('❌ MySQL connection failed:', error.message);
-      console.log('   Check your MySQL credentials');
-    }
-  } else {
-    console.log('⚠ Skipping MySQL test (requires VPN for remote host)');
+  // Test 3: Test the BigQuery connection
+  console.log('\n3. Testing BigQuery connection...');
+  try {
+    const { getBigQueryClient, tableRef } = require('../src/lib/bigquery');
+    const [rows] = await getBigQueryClient().query({
+      query: `SELECT COUNT(*) AS claims FROM ${tableRef('youtube_mcn_claims')}`
+    });
+    console.log('✓ BigQuery connection successful:', rows[0]);
+  } catch (error) {
+    console.error('❌ BigQuery connection failed:', error.message);
+    console.log('   Check BQ_PROJECT_ID, BQ_DATASET and the service account\'s access');
   }
 
   return true;
@@ -111,9 +102,8 @@ async function testFullPipeline() {
     console.log('\nStarting pipeline with test files...\n');
     
     // Run pipeline
-    const result = await runPipeline(files, { 
-      skipVPN: process.env.SKIP_VPN === 'true',
-      testMode: true 
+    const result = await runPipeline(files, {
+      testMode: true
     }, null, { source: 'test', user: 'test-script' });
 
     console.log('\n✅ Pipeline completed successfully!');
@@ -129,12 +119,6 @@ async function testFullPipeline() {
 async function main() {
   console.log('YouTube MCN Pipeline Test\n');
   console.log('========================\n');
-
-  // Check if we should skip VPN
-  if (process.argv.includes('--skip-vpn')) {
-    process.env.SKIP_VPN = 'true';
-    console.log('ℹ Skipping VPN connection for testing\n');
-  }
 
   // Run tests
   const stepsOk = await testSteps();

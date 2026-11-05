@@ -63,7 +63,7 @@ app.post('/api/run', authenticateRequest,
       });
     }
 
-    // The daily claims ingest holds the VPN and MySQL connection too
+    // The daily claims ingest writes to the same warehouse tables
     if (await isClaimsIngestRunning()) {
       return res.status(409).json({
         error: 'Daily claims ingest is running',

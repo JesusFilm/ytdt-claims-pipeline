@@ -1,24 +1,27 @@
 const isShortVideo = require('../lib/isShortVideo');
 const { mapWithConcurrency } = require('../lib/utils');
+const { getBigQueryClient, tableRef, escapeValue } = require('../lib/bigquery');
 
 const SHORT_MAX_DURATION_SEC = 180;
 const CONCURRENCY = 5;
 
 
 async function enrichShorts(context) {
-  const mysql = context.connections.mysql;
+  const bq = getBigQueryClient();
 
-  // Scope to rows inserted/updated today — insert_claims.rb sets
-  // claim_last_updated_date = NOW() on every insert and ON DUPLICATE KEY UPDATE.
-  const [rows] = await mysql.query(
-    `SELECT video_id, video_duration_sec
-     FROM youtube_mcn_claims
-     WHERE short = 0
-       AND video_duration_sec > 0
-       AND video_duration_sec <= ?
-       AND DATE(claim_last_updated_date) = CURDATE()`,
-    [SHORT_MAX_DURATION_SEC]
-  );
+  // Scope to rows inserted/updated today — process_claims sets
+  // claim_last_updated_date = CURRENT_TIMESTAMP() on every insert and merge.
+  const [rows] = await bq.query({
+    query: `
+      SELECT video_id, video_duration_sec
+      FROM ${tableRef('youtube_mcn_claims')}
+      WHERE short = 0
+        AND video_duration_sec > 0
+        AND video_duration_sec <= @maxDuration
+        AND DATE(claim_last_updated_date) = CURRENT_DATE()
+    `,
+    params: { maxDuration: SHORT_MAX_DURATION_SEC }
+  });
 
   if (!rows.length) {
     console.log('enrich_shorts: no eligible videos to check today');
@@ -43,11 +46,10 @@ async function enrichShorts(context) {
     const BATCH_SIZE = 500;
     for (let i = 0; i < shorts.length; i += BATCH_SIZE) {
       const batch = shorts.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '?').join(',');
-      await mysql.query(
-        `UPDATE youtube_mcn_claims SET short = 1 WHERE video_id IN (${placeholders})`,
-        batch
-      );
+      const ids = batch.map(id => escapeValue(id)).join(', ');
+      await bq.query({
+        query: `UPDATE ${tableRef('youtube_mcn_claims')} SET short = 1 WHERE video_id IN (${ids})`
+      });
     }
   }
 
