@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline monitor</title>
+<style>
+  :root {
+    --bg: #fcfcfb; --card: #fff; --band: #f1efe8; --line: rgba(11,11,11,.10);
+    --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #898781;
+    --warn: #854f0b; --bad: #a32d2d; --ok: #0f6e56;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --card: #1a1a19; --band: #242423; --line: rgba(255,255,255,.10);
+      --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #898781;
+      --warn: #fac775; --bad: #f09595; --ok: #5dcaa5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1rem; background: var(--bg); color: var(--ink);
+    font: 400 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 500; margin: 0 0 4px; }
+  h2 { font-size: 13px; font-weight: 400; color: var(--ink-3); margin: 1.5rem 0 .5rem; }
+  .sub { color: var(--ink-2); font-size: 13px; margin: 0 0 1.5rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+  .cards div { background: var(--band); border-radius: 8px; padding: 1rem; }
+  .cards span { display: block; font-size: 13px; color: var(--ink-2); }
+  .cards strong { font-size: 24px; font-weight: 500; }
+  .panel { background: var(--card); border: .5px solid var(--line); border-radius: 12px; padding: 4px 1.25rem 12px; }
+  table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+  th { font-weight: 400; color: var(--ink-3); font-size: 12px; text-align: left; padding: 10px 0; }
+  td { padding: 6px 0; }
+  .num { text-align: right; padding-right: 10px; font-variant-numeric: tabular-nums; }
+  td, th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .band td { background: var(--band); color: var(--ink-2); font-size: 12px; padding: 8px 10px; border-radius: 8px; }
+  .total td { border-top: .5px solid var(--line); font-weight: 500; }
+  .note td { color: var(--ink-2); font-size: 12px; padding: 4px 0 8px; }
+  .warn { color: var(--warn); } .bad { color: var(--bad); } .ok { color: var(--ok); } .muted { color: var(--ink-3); }
+  footer { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; font-size: 13px; color: var(--ink-3); }
+  button, a.btn {
+    font: inherit; font-size: 13px; color: var(--ink); background: none; cursor: pointer;
+    border: .5px solid var(--line); border-radius: 8px; padding: 6px 12px; text-decoration: none;
+  }
+  #signin { text-align: center; padding: 3rem 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pipeline monitor</h1>
+  <p class="sub" id="sub">Loading&hellip;</p>
+
+  <div id="signin" hidden>
+    <a class="btn" href="/api/auth/google">Sign in with Google</a>
+  </div>
+
+  <div id="dash" hidden>
+    <div class="cards" id="cards"></div>
+    <h2>Volume and gaps</h2>
+    <div class="panel"><table id="vol"></table></div>
+    <h2>Last run, per stream</h2>
+    <div class="panel"><table id="chain"></table></div>
+    <footer>
+      <span id="stamp"></span>
+      <button id="refresh">Refresh now</button>
+    </footer>
+  </div>
+</main>
+
+<script>
+const KEY = 'monitor_token';
+
+const url = new URL(location.href);
+if (url.searchParams.get('token')) {
+  localStorage.setItem(KEY, url.searchParams.get('token'));
+  url.searchParams.delete('token');
+  history.replaceState(null, '', url);
+}
+
+const num = (n) => n == null ? '—' : n.toLocaleString();
+const plays = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' M' : n >= 1e3 ? Math.round(n / 1e3) + ' k' : String(n);
+
+function gapClass(days) {
+  if (days >= 4) return 'bad';
+  if (days >= 1) return 'warn';
+  return '';
+}
+
+function renderRow(r) {
+  const cls = gapClass(r.gap_days);
+  return `<tr>
+    <td>${r.title || r.id}</td>
+    <td class="num">${num(r.videos)}</td>
+    <td class="num">${plays(r.plays)}</td>
+    <td class="${r.last_day ? '' : 'muted'}">${r.last_day || 'never'}</td>
+    <td class="num ${cls}">${r.gap_days}</td>
+    <td class="num ${r.plays_missing ? cls : 'muted'}">${r.plays_missing ? '~' + plays(r.plays_missing) : '—'}</td>
+  </tr>`;
+}
+
+let STALE = 0;
+
+function renderChain(data) {
+  STALE = data.stale_count;
+  let html = `<tr>
+    <th style="width:30%">Stream</th>
+    <th style="width:14%">Runs</th>
+    <th class="num" style="width:16%">Rows 24 h</th>
+    <th class="num" style="width:16%">24 h before</th>
+    <th class="num" style="width:12%">Quiet h</th>
+    <th style="width:12%">State</th>
+  </tr>`;
+
+  for (const s of data.streams) {
+    // Only daily streams can be judged against yesterday. A weekly or monthly one is
+    // quiet most days by design, and flagging that would cry wolf until nobody looks.
+    const drop = s.cadence === 'daily' && s.rows_yesterday > 100 && s.rows_today < s.rows_yesterday / 4;
+    html += `<tr>
+      <td>${s.label}</td>
+      <td class="muted">${s.cadence}</td>
+      <td class="num ${drop ? 'warn' : ''}">${num(s.rows_today)}</td>
+      <td class="num muted">${num(s.rows_yesterday)}</td>
+      <td class="num">${s.quiet_hours == null ? '—' : s.quiet_hours}</td>
+      <td class="${s.stale ? 'bad' : 'ok'}">${s.stale ? 'stale' : 'ran'}</td>
+    </tr>`;
+  }
+
+  document.getElementById('chain').innerHTML = html;
+  return data;
+}
+
+function render(data) {
+  const notes = {
+    mcn: 'Do not add this to the channel total. MCN returns owned videos too.',
+    public: 'Only a running total is stored, so plays are the change across the window.',
+  };
+
+  let html = `<tr>
+    <th style="width:28%">Source</th>
+    <th class="num" style="width:13%">Videos</th>
+    <th class="num" style="width:17%">Plays ${data.window_days} d</th>
+    <th style="width:16%">Last day</th>
+    <th class="num" style="width:12%">Gap d</th>
+    <th class="num" style="width:14%">Plays lost</th>
+  </tr>`;
+
+  for (const g of data.groups) {
+    html += `<tr class="band"><td colspan="6">${g.label} &bull; ${g.rows.length} source${g.rows.length === 1 ? '' : 's'}</td></tr>`;
+    html += g.rows.map(renderRow).join('');
+    if (g.rows.length > 1) {
+      html += `<tr class="total">
+        <td>${g.label} total</td>
+        <td class="num">${num(g.total.videos)}</td>
+        <td class="num">${plays(g.total.plays)}</td>
+        <td></td>
+        <td class="num">${g.total.gap_days}</td>
+        <td class="num ${g.total.plays_missing ? 'bad' : 'muted'}">${g.total.plays_missing ? '~' + plays(g.total.plays_missing) : '—'}</td>
+      </tr>`;
+    }
+    if (notes[g.key]) html += `<tr class="note"><td colspan="6">${notes[g.key]}</td></tr>`;
+  }
+
+  document.getElementById('vol').innerHTML = html;
+
+  const all = data.groups.flatMap((g) => g.rows);
+  const lost = data.groups.reduce((a, g) => a + g.total.plays_missing, 0);
+  const behind = all.filter((r) => r.gap_days > 0).length;
+  document.getElementById('cards').innerHTML = `
+    <div><span>Sources</span><strong>${all.length}</strong></div>
+    <div><span>Behind</span><strong class="${behind ? 'warn' : ''}">${behind}</strong></div>
+    <div><span>Plays, last ${data.window_days} d</span><strong>${plays(data.groups[0].total.plays + data.groups[1].total.plays)}</strong></div>
+    <div><span>Plays missing</span><strong class="${lost ? 'bad' : ''}">${lost ? '~' + plays(lost) : '0'}</strong></div>
+    <div><span>Streams stale</span><strong class="${STALE ? 'bad' : ''}">${STALE}</strong></div>`;
+
+  document.getElementById('stamp').textContent =
+    `Read ${new Date(data.fetched_at).toLocaleTimeString()} • auto every 60 s`;
+}
+
+async function load(fresh) {
+  const token = localStorage.getItem(KEY);
+  if (!token) {
+    document.getElementById('sub').textContent = 'Sign in to read the pipeline.';
+    document.getElementById('signin').hidden = false;
+    return;
+  }
+
+  const get = (name) => fetch('/api/monitor/' + name + (fresh ? '?fresh=1' : ''), {
+    headers: { Authorization: 'Bearer ' + token },
+  });
+
+  try {
+    const [volRes, chainRes] = await Promise.all([get('volume'), get('chain')]);
+    if (volRes.status === 401 || chainRes.status === 401) {
+      localStorage.removeItem(KEY);
+      return load();
+    }
+    if (!volRes.ok) throw new Error('HTTP ' + volRes.status);
+    if (!chainRes.ok) throw new Error('HTTP ' + chainRes.status);
+
+    renderChain(await chainRes.json());
+    render(await volRes.json());
+    document.getElementById('sub').textContent =
+      'Videos collected, plays over the window, and what is missing. Channel and MCN totals stay separate.';
+    document.getElementById('signin').hidden = true;
+    document.getElementById('dash').hidden = false;
+  } catch (e) {
+    document.getElementById('sub').textContent = 'Could not read the pipeline: ' + e.message;
+  }
+}
+
+document.getElementById('refresh').addEventListener('click', () => load(true));
+load();
+setInterval(() => load(), 60000);
+</script>
+</body>
+</html>

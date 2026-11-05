@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 
 const { runPipeline, getPipelineStepNames } = require('./pipeline');
@@ -156,7 +157,10 @@ app.post('/api/run', authenticateRequest,
     });
   });
 
-// Mount public routes (server-to-server callback, health check)   
+// Monitor page. The page itself carries no data; it calls the API with a token.
+app.use('/monitor', express.static(path.join(__dirname, '..', 'public'), { index: 'monitor.html' }));
+
+// Mount public routes (server-to-server callback, health check)
 app.post('/api/ml-webhook', handleMLWebhook);
 app.get('/api/health', getHealth);
 
