@@ -13,7 +13,7 @@ The deploy script (`infrastructure/gcp/deploy.sh`):
 
 The VM provisioning (`cloud-config.yaml`):
 
-1. Installs dependencies: Node.js v20, Nginx, OpenVPN, Miniconda, git-lfs
+1. Installs dependencies: Node.js v20, Nginx, Miniconda, git-lfs
 2. Downloads and extracts ytdt-claims-pipeline source from GCS
 3. Runs `npm ci`
 4. Clones YT-Validator repo and creates conda environment
@@ -41,7 +41,6 @@ All secrets and configuration come from `.env.production`.
 - `.env.production` file with **all** required environment variables including secrets 
   from both `ytdy-claims-pipeline` (see `src/.env.example`) and `YT-Validator`.
 - `config/` directory with:
-  - `config/vpn/client.ovpn` (VPN configuration)
   - `config/service-account-key.json` (Google service account for Drive access)
 
 ## Developing the console against a deployed API
@@ -99,8 +98,9 @@ export YT_VALIDATOR_BRANCH="ML-Pipeline"
 ## Branches and mirroring
 
 `main` is the trunk and feature branches PR into it; `dev` was retired on 2026-09-16.
-Keep `legacy/typescript-rewrite-2025` (archive of the old `main`, the stalled TypeScript/ESM
-rewrite) and `feat/export-views-bigquery` (the MySQL → BigQuery migration).
+Keep `legacy/typescript-rewrite-2025`, the archive of the old `main` and its stalled
+TypeScript/ESM rewrite. `feat/export-views-bigquery` is spent: the BigQuery migration
+landed on `main` instead, rebuilt there rather than merged.
 
 The VM tracks `main`. To ship merged work without re-provisioning:
 
@@ -241,47 +241,3 @@ sudo journalctl -u yt-validator -n 50
 > model is loaded and warm. See
 > [YT-Validator troubleshooting](https://github.com/matthew-jf/YT-Validator/blob/ML-Pipeline/docs/deploy.md#troubleshooting).
 
-### vm-routing service (asymmetric routing during VPN)
-
-The `vm-routing` service is normally already deployed via [cloud-config](infrastructure/gcp/cloud-config.yaml).
-The `vm-routing` service adds a policy route so inbound traffic to the VM's external IP replies via the local gateway, not the VPN tunnel. Without it, the console at https://ytdt-claims-console.jesusfilm.org can't reach the backend while the pipeline VPN is up.
-
-Verify it's installed and active:
-```bash
-sudo systemctl status vm-routing
-ip rule | grep 128
-ip route show table 128
-```
-
-Expected:
-- `from <VM_INTERNAL_IP> lookup 128`
-- `default via <GATEWAY> dev ens4`
-
-If missing, install manually:
-```bash
-sudo tee /etc/systemd/system/vm-routing.service > /dev/null <<'EOF'
-[Unit]
-Description=VM symmetric routing (bypass VPN for inbound traffic)
-After=network-online.target
-Wants=network-online.target
-Before=ytdt-claims-pipeline.service
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c 'IFACE=$(ip route show default | awk "{print \$5; exit}"); IP=$(ip -4 -o addr show $IFACE | awk "{print \$4}" | cut -d/ -f1); GW=$(ip route show default dev $IFACE | awk "{print \$3}"); ip rule add from $IP table 128 2>/dev/null || true; ip route add table 128 default via $GW dev $IFACE 2>/dev/null || true'
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now vm-routing
-```
-
-Test while pipeline VPN is up:
-```bash
-# from external host (not the VM)
-curl -I https://<EXTERNAL_IP>.nip.io
-```
-Should return a response from nginx, not hang.

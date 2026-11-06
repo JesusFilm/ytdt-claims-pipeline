@@ -55,7 +55,7 @@ The console's Collection tab (ytdt-claims-console) shows four steps. They are ea
 | Step | Means | Source |
 |---|---|---|
 | Published | YouTube generated the report and made it downloadable | `reports.<source>.createTime` |
-| Ingested | Downloaded, filtered to Jesus Film claims, new rows merged into MySQL | ingest record `endedAt` |
+| Ingested | Downloaded, filtered to Jesus Film claims, new rows merged into BigQuery | ingest record `endedAt` |
 | Queued | Unprocessed claims exported and posted to `/asr/queue` | `results.asrQueue.rows` |
 | Audio language | YT-Validator's collector records the language YouTube's speech recognition heard | `collector.*` (its 08:15 UTC run) |
 
@@ -98,17 +98,12 @@ run ended early. `queue.has_licensed` says whether the current queue came from a
 
 ## Where BigQuery fits
 
-MySQL `jfp_analytics_prod.youtube_mcn_claims` is the source of truth. Airbyte
-(`source_social_analytics`) does **not** read it: it reads a BigQuery copy, `airbyte.youtube_mcn_claims`,
-refreshed by `scripts/sync_mcn_claims_to_bq.py` in the connector repo (`SELECT *`, `WRITE_TRUNCATE`).
-That copy is a bridge, and it belongs to the connector, not to this pipeline. It should run after an
-ingest that loaded new claims, and skip otherwise.
+`airbyte.youtube_mcn_claims` in `jfp-data-warehouse` is the source of truth, and this
+pipeline writes it directly. Airbyte (`source_social_analytics`) reads the same table.
 
-Distinct from the `feat/export-views-bigquery` branch, which moves this pipeline's own reads and
-writes to BigQuery. When that lands the pipeline writes BQ directly and the copy becomes unnecessary.
-
-Terminology, since both get called "mirror": the **git mirror** is `ceduth/ytdt-claims-pipeline`
-(see [deploy](./deploy.md)); the **BQ claims copy** is the table above.
+It used to be a copy of MySQL, refreshed by `scripts/sync_mcn_claims_to_bq.py` in the
+connector repo and by this repo's own mirror job. Both are gone: arclight's MySQL is
+deprecated and nothing here reads it.
 
 ## Export directories
 
@@ -217,7 +212,7 @@ sudo bash -c 'set -a; . /etc/ytdt-claims-pipeline/.env; set +a; node scripts/ing
 ```
 
 `--dry-run` lists the reports it would fetch and writes nothing, so it proves the credentials without touching
-MySQL or the ASR queue. Drop the flag to collect for real.
+BigQuery or the ASR queue. Drop the flag to collect for real.
 
 Signing in again pushes out the oldest token for this account and client once there are 100, so avoid repeated
 sign-ins "to be safe".

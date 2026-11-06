@@ -28,9 +28,6 @@ docker run -d \
 mkdir logs/
 ```
 
-Only `jobs/mirrorMysqlToBq.js` still reaches arclight's MySQL over OpenVPN. If
-you need to run it, see [VPN troubleshooting](./docs/vpn-troubleshooting.md).
-
 3. **Google Drive** - Optional (for `upload_drive` step)
 
 - The same service account key is used

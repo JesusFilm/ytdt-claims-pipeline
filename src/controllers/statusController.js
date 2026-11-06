@@ -18,7 +18,6 @@ const { getRunFolderId, uploadFile } = require('../lib/driveUpload');
 const { getCurrentPipelineStatus, syncRunState } = require('../pipeline');
 const { getDatabase } = require('../database');
 const claimsIngest = require('../jobs/claimsIngest');
-const mirror = require('../jobs/mirrorMysqlToBq');
 
 
 const GIT_BRANCH = (() => { try { return execSync('git rev-parse --abbrev-ref HEAD').toString().trim() } catch { return 'unknown' } })()
@@ -96,7 +95,6 @@ function getHealth(req, res) {
       disk: await diskFree(path.resolve(__dirname, '../..')),
       schedules: [
         describeSchedule('Claims ingest', 'CLAIMS_INGEST_ENABLED', 'CLAIMS_INGEST_TIME_UTC', '06:00', claimsIngest.msUntilUtc),
-        describeSchedule('MySQL -> BigQuery mirror', 'CLAIMS_MIRROR_ENABLED', 'CLAIMS_MIRROR_TIME_UTC', '03:00', mirror.msUntilUtc),
       ],
     };
 
