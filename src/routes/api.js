@@ -6,6 +6,7 @@ const statusController = require('../controllers/statusController');
 const pendingRunController = require('../controllers/pendingRunController');
 const claimsIngestController = require('../controllers/claimsIngestController');
 const verdictsController = require('../controllers/verdictsController');
+const monitorController = require('../controllers/monitorController');
 
 
 function createApiRoutes(pipelineStatus) {
@@ -38,6 +39,10 @@ function createApiRoutes(pipelineStatus) {
   // Status routes
   router.get('/status', statusController.getStatus(pipelineStatus));
   router.get('/claims-ingest/status', claimsIngestController.getClaimsIngestStatus);
+
+  // Monitor routes
+  router.get('/monitor/volume', monitorController.getVolumePanel);
+  router.get('/monitor/chain', monitorController.getChainPanel);
 
   return router;
 }
