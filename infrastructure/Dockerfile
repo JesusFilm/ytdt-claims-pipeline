@@ -1,8 +1,5 @@
 FROM node:18
 
-# Install OpenVPN
-RUN apt-get update && apt-get install -y openvpn iputils-ping
-
 # Set working directory
 WORKDIR /app
 
