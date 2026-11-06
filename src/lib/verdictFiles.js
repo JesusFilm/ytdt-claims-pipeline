@@ -37,7 +37,7 @@ function classifyCsv(headerLine) {
 
 // video_ids of our own channels, from the newest owned_videos.csv an export
 // produced. A local file rather than a MySQL query: this runs while someone
-// waits in Slack, and the pipeline's database is only reachable over the VPN.
+// waits in Slack, and the pipeline's tables live in the warehouse.
 function ownedVideoIds(exportsDir = path.join(process.cwd(), 'data', 'exports')) {
   let newest = null;
   const walk = dir => {

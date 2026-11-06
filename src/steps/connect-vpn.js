@@ -1,3 +1,6 @@
+// Not a pipeline step any more: the pipeline reads and writes BigQuery, which
+// needs no tunnel. This stays for jobs/mirrorMysqlToBq.js, the only thing left
+// that reaches arclight's MySQL, and goes when that job does.
 const { spawn } = require('child_process');
 const mysql = require('mysql2/promise');
 const path = require('path');

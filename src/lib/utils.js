@@ -115,12 +115,13 @@ module.exports.formatTimestamp = (value, timeZone = process.env.DISPLAY_TIMEZONE
 /**
  * Turn a comma-separated ignore list from the environment into one REGEXP
  * alternation, with every regexp metacharacter in the patterns escaped so a
- * literal `??` stays literal. The doubled backslash is deliberate: the result
- * is interpolated into SQL, where MySQL eats one level of escaping itself.
+ * literal `??` stays literal. One backslash, not two: the result goes into a
+ * BigQuery raw string (r'...'), which passes backslashes through untouched.
+ * MySQL needed two, because its own string literals ate one level.
  */
 module.exports.toRegexp = (patterns) => patterns
   .split(',')
   .map(p => p.trim())
   .filter(Boolean)
-  .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&'))
+  .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   .join('|');

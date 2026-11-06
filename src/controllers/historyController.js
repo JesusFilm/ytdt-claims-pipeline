@@ -5,7 +5,7 @@ const { syncRunState, runPipeline } = require('../pipeline');
 const { createAuthedClient } = require('../lib/authtedClient');
 const { isClaimsIngestRunning } = require('../jobs/claimsIngest');
 
-// Steps that open the VPN and MySQL connection when restarted on their own
+// Steps that read or write the warehouse when restarted on their own
 const DB_STEPS = ['enrich_shorts', 'export_views'];
 
 

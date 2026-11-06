@@ -18,21 +18,22 @@ docker run -d \
   mongo:6
 ```
 
-2. **OpenVPN** – Setup, start, and test  
+2. **BigQuery** – the warehouse the pipeline reads and writes
 
-+Drop `ca.crt`, `client.crt`, `client.key`, `client.ovpn` into `./config/vpn`.  
-+See [VPN troubleshooting](./docs/vpn-troubleshooting.md) for required directives and credential rotation.  
- then install OpenVPN binary and dry-test (one-time):
+- Create a Service Account on GCP and download the key to `config/service-account-key.json`
+- Give it BigQuery Data Editor on the `youtube` dataset and Job User on the project
+- Set `BQ_PROJECT_ID`, `BQ_DATASET` and `BQ_KEY_FILE` (see `src/.env.example`)
 
 ```shell
-brew install openvpn
-sudo openvpn --config ./config/vpn/client.ovpn
 mkdir logs/
 ```
 
+Only `jobs/mirrorMysqlToBq.js` still reaches arclight's MySQL over OpenVPN. If
+you need to run it, see [VPN troubleshooting](./docs/vpn-troubleshooting.md).
+
 3. **Google Drive** - Optional (for `upload_drive` step)
 
-- Create Service Account on GCP and download to `config/service-account-key.json`
+- The same service account key is used
 - Enable the Google Drive API
 
 4. **YT-Validator** - Inovked during ML Enrichment step
@@ -42,8 +43,7 @@ Refer to [setup instructions](https://github.com/matthew-jf/YT-Validator/blob/ch
 ### API Server
 
 Notes: 
-1. Requies sudo privileges to spawn the VPN client.
-2. Allow up to 8GB JS heap size to run safely `--max-old-space-size=8192"`
+1. Allow up to 8GB JS heap size to run safely `--max-old-space-size=8192"`
 
 ```shell
 export \
@@ -123,7 +123,7 @@ scoring it, skipping the import and verdict steps. This is what the console's
 
 ```shell
 curl -X POST $BASE_URL/api/run \
-  -F "steps=connect_vpn,export_views,enrich_ml,upload_drive"
+  -F "steps=export_views,enrich_ml,upload_drive"
 ```
 
 Unknown step names are rejected with 400 and the valid list returned.
@@ -143,11 +143,7 @@ GROUP BY claim_report_source;
 ### Test Pipeline: Using supplied script (generates test data)
 
 ```shell
-# Using VPN
-sudo node scripts/test-pipeline.js
-
-# Using local MySQL
-SKIP_VPN=true sudo node scripts/test-pipeline.js
+node scripts/test-pipeline.js
 ```
 
 

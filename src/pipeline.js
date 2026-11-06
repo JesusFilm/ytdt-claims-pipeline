@@ -1,5 +1,3 @@
-const connectVPN = require('./steps/connect-vpn');
-const disconnectVPN = require('./steps/disconnect-vpn');
 const validateInputCSVs = require('./steps/validate-input-csvs');
 const backupTables = require('./steps/backup-tables');
 const processClaims = require('./steps/process-claims');
@@ -38,11 +36,6 @@ function getPipelineSteps(files, only = null, skip = null) {
 
 function getAllPipelineSteps(files) {
   return [
-    {
-      name: 'connect_vpn', fn: connectVPN,
-      title: 'Connect VPN',
-      description: 'Establishes secure VPN connection to access remote database and services'
-    },
     {
       name: 'validate_input_csvs', fn: validateInputCSVs,
       title: 'Validate Input CSVs',
@@ -297,13 +290,6 @@ async function runPipeline(files, options = {}, existingRunId = null, triggeredB
 
     throw error;
 
-  } finally {
-    // Always disconnect VPN
-    try {
-      await disconnectVPN(context);
-    } catch (err) {
-      console.error('Failed to disconnect VPN:', err);
-    }
   }
 }
 
@@ -532,7 +518,6 @@ function formatStepName(stepName) {
 // Run a single step with reconstructed context
 async function runSingleStep(runId, stepName, run) {
   const db = getDatabase();
-  const mysql = require('mysql2/promise');
   const path = require('path');
   const { generateRunFolderName } = require('./lib/utils');
 
@@ -559,21 +544,8 @@ async function runSingleStep(runId, stepName, run) {
     runId: new ObjectId(runId).toString()
   };
 
-  // Reconnect to MySQL (needed for steps that hit the DB)
-  if (stepName === 'export_views' || stepName === 'enrich_shorts') {
-    // Ensure VPN is connected first
-    const connectVPN = require('./steps/connect-vpn');
-    await connectVPN(context);
-
-    context.connections.mysql = await mysql.createPool({
-      host: process.env.MYSQL_HOST,
-      user: process.env.MYSQL_USER,
-      password: process.env.MYSQL_PASSWORD,
-      database: process.env.MYSQL_DATABASE,
-      waitForConnections: true,
-      connectionLimit: 10,
-    });
-  }
+  // No reconnect: the BigQuery client is built on first use and holds nothing
+  // open, so a restarted step needs no setup of its own.
 
   // Rebuild export paths for enrich_ml and upload_drive
   if (stepName === 'enrich_ml' || stepName === 'upload_drive') {
@@ -650,17 +622,6 @@ async function runSingleStep(runId, stepName, run) {
     await syncRunState(new ObjectId(runId), { stepName });
     throw stepError;
 
-  } finally {
-    // Cleanup connections
-    if (context.connections.mysql) {
-      await context.connections.mysql.end();
-      context.connections.mysql = null; // Prevent double-close
-    }
-    // Disconnect VPN if we connected it 
-    if ((stepName === 'export_views' || stepName === 'enrich_shorts') && context.connections.vpnProcess) {
-      const disconnectVPN = require('./steps/disconnect-vpn');
-      await disconnectVPN(context);
-    }
   }
 }
 
